@@ -72,7 +72,7 @@ brews:
   - name: sx
     homepage: https://github.com/sleuth-io/sx
     description: "Your team's private npm for AI assets - skills, MCP configs, commands, and more"
-    license: MIT
+    license: Apache-2.0
     repository:
       owner: sleuth-io
       name: homebrew-tap
