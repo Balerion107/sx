@@ -306,10 +306,9 @@ func (c *Client) registerSkillsMCPServer() error {
 	// The MCP entry is executed later by the client, so it needs the CLI, not
 	// whichever binary happens to be running now — os.Executable() is the GUI
 	// binary when this runs from the desktop app, and that has no subcommands.
-	sxBinary, err := clipath.Resolve()
-	if err != nil {
-		return err
-	}
+	// Falls back to a bare "sx" (resolved by the client's PATH) rather than
+	// refusing to register the server at all.
+	sxBinary := clipath.ResolveOrBare()
 
 	// Add skills MCP server entry
 	config.MCPServers["skills"] = map[string]any{

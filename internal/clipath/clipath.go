@@ -228,6 +228,21 @@ func CommandOrBare(args ...string) string {
 	return cmd
 }
 
+// ResolveOrBare returns the resolved CLI path, or the bare name "sx" when none
+// can be found.
+//
+// For argv-style fields — an MCP server's "command", which the client execs
+// directly rather than through a shell — so the result is deliberately not
+// shell-quoted, and the bare fallback defers to the client's own PATH lookup.
+// Failing to write an MCP entry at all would be worse than writing one that
+// depends on PATH.
+func ResolveOrBare() string {
+	if path, err := Resolve(); err == nil {
+		return path
+	}
+	return "sx"
+}
+
 func shellQuote(s string) string {
 	if !strings.ContainsAny(s, " \t\"'\\$`") {
 		return s
