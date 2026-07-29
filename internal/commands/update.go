@@ -8,9 +8,9 @@ import (
 	"github.com/creativeprojects/go-selfupdate"
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/autoupdate"
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	"github.com/sleuth-io/sx/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/autoupdate"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
 )
 
 // NewUpdateCommand creates the update command

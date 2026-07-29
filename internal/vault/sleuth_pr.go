@@ -11,7 +11,7 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // metadataFileName is the asset descriptor that lives at the zip root. The

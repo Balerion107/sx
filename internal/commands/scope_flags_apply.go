@@ -1,9 +1,9 @@
 package commands
 
 import (
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/components"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // resolveAddScope decides where an asset is scoped during `sx add`, given the

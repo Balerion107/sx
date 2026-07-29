@@ -3,7 +3,7 @@ package detectors
 import (
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // DetectAssetTypeFromPath detects asset type from a single file path and optional content.

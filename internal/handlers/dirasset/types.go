@@ -1,7 +1,7 @@
 package dirasset
 
 import (
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // InstalledAssetInfo represents information about an installed asset

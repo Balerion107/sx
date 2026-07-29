@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // newExtensionVault initializes a git-backed path vault directory and

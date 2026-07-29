@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 // The policy read maps server enum casing to the manifest's lowercase

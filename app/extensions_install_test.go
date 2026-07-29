@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // seedConfigWithIdentity is seedConfig plus an identity email, which

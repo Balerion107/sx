@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 func collectionsPage(nodes ...map[string]any) map[string]any {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // RepositoryType represents the type of repository (sleuth, git, or path)

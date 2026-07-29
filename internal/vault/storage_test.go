@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/vault/layout"
+	"github.com/sleuth-io/sx/v2/internal/vault/layout"
 )
 
 func storageZip(t *testing.T, files map[string]string) []byte {

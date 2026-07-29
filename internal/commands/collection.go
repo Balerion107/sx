@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/config"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // NewCollectionCommand returns the `sx collection` command group.

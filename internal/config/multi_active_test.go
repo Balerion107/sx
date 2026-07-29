@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // writeConfig persists a backwards-compatible config payload at the

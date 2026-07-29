@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // legacyLockFileName is the pre-manifest filename that older sx builds

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 func TestRuleHandler_BuildRuleContent_NoGlobs(t *testing.T) {

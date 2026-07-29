@@ -4,8 +4,8 @@ import (
 	"maps"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 // findManifestAsset is a test helper that loads the vault's manifest at

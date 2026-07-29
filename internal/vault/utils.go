@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // parseVersionList parses a newline-separated list of versions from bytes

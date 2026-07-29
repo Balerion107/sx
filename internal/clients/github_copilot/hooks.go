@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients/github_copilot/handlers"
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients/github_copilot/handlers"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 // installBootstrap installs GitHub Copilot CLI infrastructure (hooks and MCP servers).

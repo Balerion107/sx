@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients"
-	_ "github.com/sleuth-io/sx/internal/clients/openclaw"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	_ "github.com/sleuth-io/sx/v2/internal/clients/openclaw"
 )
 
 // TestOpenClawClientDetection tests that OpenClaw is detected when ~/.openclaw exists

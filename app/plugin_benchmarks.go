@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Benchmark storage for extensions (SxAPI 1.10.0, docs/benchmarks-spec.md):

@@ -3,8 +3,8 @@ package manifest
 import (
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // Collection scopes are dereferenced at resolve time: member assets reach

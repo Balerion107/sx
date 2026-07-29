@@ -1,8 +1,8 @@
 package clients
 
 import (
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // ParsedRule is the canonical format returned by all client rule parsers.

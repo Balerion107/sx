@@ -11,9 +11,9 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // Desktop-app extension policy (docs/app-plugins-spec.md): stored in the

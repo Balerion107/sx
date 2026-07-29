@@ -273,7 +273,7 @@ agents, manage bots and teams, and browse or download assets from your own
 program against Skills.new, Git, or local Path vaults through one `Client`:
 
 ```go
-import "github.com/sleuth-io/sx/pkg/sxvault"
+import "github.com/sleuth-io/sx/v2/pkg/sxvault"
 
 ctx := context.Background()
 client, err := sxvault.OpenSkillsNew("https://app.skills.new", token)

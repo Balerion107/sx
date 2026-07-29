@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Shared extension storage (API 1.5.0, docs/app-plugins-spec.md): one

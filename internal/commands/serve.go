@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	mcpserver "github.com/sleuth-io/sx/internal/mcp"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	mcpserver "github.com/sleuth-io/sx/v2/internal/mcp"
 )
 
 // NewServeCommand creates the serve command

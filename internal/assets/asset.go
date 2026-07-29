@@ -3,8 +3,8 @@ package assets
 import (
 	"context"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // InstallRequest represents a request to install assets

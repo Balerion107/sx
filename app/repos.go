@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/sleuth-io/sx/internal/config"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Repository views are a per-library opt-in (Profile.TrackRepos): technical

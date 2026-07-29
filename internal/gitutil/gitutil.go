@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/git"
 )
 
 // GitContext represents the current Git repository context

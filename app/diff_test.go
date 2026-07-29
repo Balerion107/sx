@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 func TestDiffLines_MinimalEdits(t *testing.T) {

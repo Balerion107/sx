@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/clients/kiro"
-	"github.com/sleuth-io/sx/internal/clients/kiro/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/clients/kiro"
+	"github.com/sleuth-io/sx/v2/internal/clients/kiro/handlers"
 )
 
 func init() {

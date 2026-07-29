@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // DefaultProfileName is the name used for the default profile

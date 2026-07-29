@@ -1,8 +1,8 @@
 package clients
 
 import (
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/assets/detectors"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/assets/detectors"
 )
 
 // DetectAssetType asks clients to determine the asset type for a path.

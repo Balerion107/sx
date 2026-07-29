@@ -3,8 +3,8 @@ package detectors
 import (
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // SkillDetector detects skill assets

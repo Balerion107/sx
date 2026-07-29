@@ -3,7 +3,7 @@ package commands
 import (
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // addOptions contains flags for non-interactive mode

@@ -13,7 +13,7 @@ import (
 
 	"github.com/pkg/browser"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sleuth-io/sx/internal/commands"
+	"github.com/sleuth-io/sx/v2/internal/commands"
 )
 
 // syncMu serializes SyncAITools runs — a second click while one is in

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // These tests pin down the single, unified scope-resolution logic that both

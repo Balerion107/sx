@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/config"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // TestAddAlreadyInstalled covers the matrix of (asset-in-vault × installed × input-form).

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // TestClientIDsMatchMetadataValidation guards against drift between the

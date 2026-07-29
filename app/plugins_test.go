@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 func pluginTestApp(t *testing.T) *App {

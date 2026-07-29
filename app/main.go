@@ -12,16 +12,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
-	_ "github.com/sleuth-io/sx/internal/clients/claude_code"    // Register Claude Code client
-	_ "github.com/sleuth-io/sx/internal/clients/cline"          // Register Cline client
-	_ "github.com/sleuth-io/sx/internal/clients/codex"          // Register Codex client
-	_ "github.com/sleuth-io/sx/internal/clients/cursor"         // Register Cursor client
-	_ "github.com/sleuth-io/sx/internal/clients/gemini"         // Register Gemini Code Assist client
-	_ "github.com/sleuth-io/sx/internal/clients/github_copilot" // Register GitHub Copilot client
-	_ "github.com/sleuth-io/sx/internal/clients/kiro"           // Register Kiro client
-	_ "github.com/sleuth-io/sx/internal/clients/openclaw"       // Register OpenClaw client
-	_ "github.com/sleuth-io/sx/internal/clients/opencode"       // Register OpenCode client
-	"github.com/sleuth-io/sx/internal/config"
+	_ "github.com/sleuth-io/sx/v2/internal/clients/claude_code"    // Register Claude Code client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/cline"          // Register Cline client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/codex"          // Register Codex client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/cursor"         // Register Cursor client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/gemini"         // Register Gemini Code Assist client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/github_copilot" // Register GitHub Copilot client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/kiro"           // Register Kiro client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/openclaw"       // Register OpenClaw client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/opencode"       // Register OpenCode client
+	"github.com/sleuth-io/sx/v2/internal/config"
 )
 
 //go:embed all:frontend/dist

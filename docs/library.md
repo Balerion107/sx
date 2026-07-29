@@ -11,12 +11,32 @@ Git, and local Path) behind a single `Client` type, so you write the same
 code regardless of where the vault lives.
 
 ```bash
-go get github.com/sleuth-io/sx/pkg/sxvault
+go get github.com/sleuth-io/sx/v2/pkg/sxvault
 ```
 
 ```go
-import "github.com/sleuth-io/sx/pkg/sxvault"
+import "github.com/sleuth-io/sx/v2/pkg/sxvault"
 ```
+
+## Module path and versions
+
+The module path carries a `/v2` suffix, as Go's
+[semantic import versioning](https://go.dev/ref/mod#major-version-suffixes)
+requires for major version 2 and above.
+
+Releases before this change were tagged `v2.x` without the suffix, which meant
+Go could not resolve them at all — `go get` topped out at `v1.8.1` no matter
+which `v2` tag was published. If you are pinned to a `v1.x` version, upgrading
+is an import-path rewrite and nothing more:
+
+```bash
+go mod edit -droprequire github.com/sleuth-io/sx
+go get github.com/sleuth-io/sx/v2/pkg/sxvault@latest
+# then rewrite imports:
+#   github.com/sleuth-io/sx/pkg/... -> github.com/sleuth-io/sx/v2/pkg/...
+```
+
+The `pkg/sxvault` API is unchanged by the suffix.
 
 ## Scope of the facade
 

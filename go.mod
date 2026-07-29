@@ -1,4 +1,4 @@
-module github.com/sleuth-io/sx
+module github.com/sleuth-io/sx/v2
 
 go 1.26
 

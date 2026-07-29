@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/llm"
+	"github.com/sleuth-io/sx/v2/internal/llm"
 )
 
 func TestLLMConfigRoundTrip(t *testing.T) {

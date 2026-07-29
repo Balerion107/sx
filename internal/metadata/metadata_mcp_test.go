@@ -3,7 +3,7 @@ package metadata
 import (
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // TestMCPMetadataRoundTrip tests that MCP metadata can be parsed and serialized without losing data

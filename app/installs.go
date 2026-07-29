@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	assetspkg "github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/manifest"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	assetspkg "github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // "Use in my AI tools": installing an asset delivers its latest revision to

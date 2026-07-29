@@ -1,7 +1,7 @@
 package detectors
 
 import (
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // AssetTypeDetector detects asset types from file structures

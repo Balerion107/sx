@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sleuth-io/sx/internal/vault/layout"
+	"github.com/sleuth-io/sx/v2/internal/vault/layout"
 )
 
 // Asset retirement — the recoverable removal consolidation needs

@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/sleuth-io/sx/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/cache"
 )
 
 var (

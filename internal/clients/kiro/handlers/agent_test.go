@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 func createTestAgentZip(t *testing.T, content string) []byte {

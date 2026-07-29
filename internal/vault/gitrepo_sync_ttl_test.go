@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // A long-lived GitVault (the desktop app holds one per session) must see

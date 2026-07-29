@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // lockFileHistorySuffix is appended to rotated lock files along with a

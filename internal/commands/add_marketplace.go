@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/clients/claude_code/handlers"
-	"github.com/sleuth-io/sx/internal/github"
-	"github.com/sleuth-io/sx/internal/ui/components"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/clients/claude_code/handlers"
+	"github.com/sleuth-io/sx/v2/internal/github"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // MarketplaceReference represents a parsed plugin@marketplace reference

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/sleuth-io/sx/internal/clients/cline" // Auto-registers via init()
+	_ "github.com/sleuth-io/sx/v2/internal/clients/cline" // Auto-registers via init()
 )
 
 // TestClineIntegration tests the full workflow with Cline client

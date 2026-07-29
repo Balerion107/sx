@@ -12,7 +12,7 @@ BUILD_DIR=./dist
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-GO_LDFLAGS=-X github.com/sleuth-io/sx/internal/buildinfo.Version=$(VERSION) -X github.com/sleuth-io/sx/internal/buildinfo.Commit=$(COMMIT) -X github.com/sleuth-io/sx/internal/buildinfo.Date=$(DATE)
+GO_LDFLAGS=-X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=$(VERSION) -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=$(COMMIT) -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=$(DATE)
 LDFLAGS=-ldflags "$(GO_LDFLAGS)"
 
 # The app package embeds frontend/dist (go:embed), which frontend builds

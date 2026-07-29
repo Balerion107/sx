@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // fakeScopeVault implements just enough of vaultpkg.Vault for the

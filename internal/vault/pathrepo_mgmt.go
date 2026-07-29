@@ -8,8 +8,8 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // acquirePathLock takes an exclusive file lock scoped to the PathVault's
