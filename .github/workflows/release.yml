@@ -30,6 +30,11 @@ jobs:
     name: Release
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Required to mint the build provenance attestation below.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -61,3 +66,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      # Sign a provenance statement for the published archives so anyone can
+      # verify they were built by this workflow, from this repository, at this
+      # commit:
+      #
+      #   gh attestation verify sx_Darwin_arm64.tar.gz --repo sleuth-io/sx
+      #
+      # install.sh already checks the release checksums; attestation is the
+      # stronger claim, tying the artifact to its build rather than to a hash
+      # file published alongside it.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: "dist/*.tar.gz,dist/*.zip"

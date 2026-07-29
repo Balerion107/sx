@@ -168,6 +168,21 @@ An AI agent is only as good as what it knows and what it's allowed to do. `sx` l
 - **Bundle the whole capability** — skills, rules, commands, hooks, and MCP config travel together as versioned assets, not loose files scattered across repos and machines
 - **Decoupled from any one vendor** — AI tools are commoditizing; the agents running on them shouldn't be locked in. Describe them in a portable format you own and carry them between tools as the landscape shifts
 
+## Put them to work: sx + hetchy
+
+`sx` gets your skills and agents onto every client your team uses. [**hetchy**](https://github.com/sleuth-io/hetchy) is where they run unattended: connect a repo, send a request from the web UI, Slack, or Linear, and hetchy runs a coding agent in an isolated sandbox, then opens a reviewable pull request with the evidence attached.
+
+The two are wired together. Every hetchy run installs agent personas and scoped skills from an `sx` vault before the agent starts — its public vault by default, or your own Skills.new vault once an org admin adds an SX key. Publish here and it's in the next run:
+
+```bash
+sx add ~/.claude/skills/migration-reviewer   # publish to your vault
+# hetchy installs it into the next sandbox — no copy-paste, no redeploy
+```
+
+hetchy embeds `sx` as a Go library ([`pkg/sxvault`](#use-sx-as-a-go-library)) rather than shelling out to the CLI, so vault access is part of the run itself.
+
+hetchy is self-hostable and Apache-2.0 — `docker compose up`. See [docs/hetchy.md](docs/hetchy.md) for the end-to-end workflow.
+
 ## Distribution models
 
 Choose the right distribution model for your team:

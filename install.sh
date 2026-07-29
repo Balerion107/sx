@@ -72,6 +72,51 @@ if ! curl -fsSL "$URL" -o "$BINARY_NAME"; then
     exit 1
 fi
 
+# Verify the download against the release's published checksums. This script is
+# meant to be piped straight into a shell, so an unverified archive gets
+# extracted and executed on the user's machine — a corrupted mirror, a truncated
+# transfer, or a tampered artifact would otherwise install silently.
+CHECKSUM_URL="https://github.com/sleuth-io/sx/releases/download/${VERSION}/checksums.txt"
+echo "Verifying checksum..."
+if ! curl -fsSL "$CHECKSUM_URL" -o checksums.txt; then
+    echo "Error: failed to download checksums.txt from ${CHECKSUM_URL}"
+    echo "Refusing to install an unverified binary."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Use whichever hashing tool the platform ships: sha256sum on most Linux
+# images, shasum on macOS.
+if command -v sha256sum > /dev/null 2>&1; then
+    SHA_CMD="sha256sum"
+elif command -v shasum > /dev/null 2>&1; then
+    SHA_CMD="shasum -a 256"
+else
+    echo "Error: neither sha256sum nor shasum is available; cannot verify the download."
+    echo "Install one of them, or download and verify manually against:"
+    echo "  ${CHECKSUM_URL}"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+EXPECTED=$(grep " ${BINARY_NAME}\$" checksums.txt | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+    echo "Error: ${BINARY_NAME} is not listed in checksums.txt"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+ACTUAL=$($SHA_CMD "$BINARY_NAME" | awk '{print $1}')
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "Error: checksum mismatch for ${BINARY_NAME}"
+    echo "  expected: ${EXPECTED}"
+    echo "  actual:   ${ACTUAL}"
+    echo "Refusing to install. Please report this at https://github.com/sleuth-io/sx/issues"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+echo "✓ Checksum verified"
+
 # Extract based on file type
 if [ "$EXT" = "tar.gz" ]; then
     tar -xzf "$BINARY_NAME"
