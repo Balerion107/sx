@@ -297,9 +297,16 @@ func (c *Client) registerSkillsMCPServer() error {
 		config.MCPServers = make(map[string]any)
 	}
 
-	if _, exists := config.MCPServers["skills"]; exists {
-		// Already configured, don't overwrite
-		return nil
+	// Leave an existing entry alone unless sx wrote it and it can no longer
+	// work. Anyone who installed from the desktop app before this fix has an
+	// entry naming the GUI binary, which the client will launch and then wait on
+	// for MCP traffic that never comes — an unconditional skip here would leave
+	// them broken forever, since the fix below is never reached. A hand-written
+	// "skills" entry is still preserved.
+	if existing, exists := config.MCPServers["skills"]; exists {
+		if !mcpEntryNeedsRepair(existing) {
+			return nil
+		}
 	}
 
 	// Get path to sx binary
@@ -554,4 +561,18 @@ func (c *Client) GetAssetPath(ctx context.Context, name string, assetType asset.
 func init() {
 	// Auto-register on package import
 	clients.Register(NewClient())
+}
+
+// mcpEntryNeedsRepair reports whether an existing "skills" MCP entry was
+// written by sx and has since become unusable — see clipath.NeedsRepair.
+func mcpEntryNeedsRepair(entry any) bool {
+	m, ok := entry.(map[string]any)
+	if !ok {
+		return false
+	}
+	cmd, ok := m["command"].(string)
+	if !ok {
+		return false
+	}
+	return clipath.NeedsRepair(cmd)
 }

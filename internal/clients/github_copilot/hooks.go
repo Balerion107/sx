@@ -86,7 +86,14 @@ func installCopilotHooks(repoRoot string, opts []bootstrap.Option) error {
 
 	// Install sessionStart hook (if enabled)
 	if bootstrap.ContainsKey(opts, bootstrap.SessionHookKey) {
-		installHook := clipath.CommandOrBare("install", "--hook-mode", "--client=github-copilot")
+		// Bare "sx" on purpose. Unlike the user-scoped configs, this file is
+		// .github/hooks/sx.json inside the user's repository — workspace-scoped,
+		// not gitignored by sx, and typically committed. A machine-absolute path
+		// here breaks every other developer and CI, the same reasoning
+		// docs/clients.md gives for keeping packaged servers out of
+		// .github/mcp.json. clipath.Managed matches both forms, so detection,
+		// upgrade, and removal are unaffected.
+		installHook := "sx install --hook-mode --client=github-copilot"
 		if !hasHookWithCommand(config.Hooks["sessionStart"], installHook) {
 			// Replace any prior sx-written install hook, including the legacy
 			// bare-"sx" and pre-rename "skills" forms.
@@ -103,7 +110,9 @@ func installCopilotHooks(repoRoot string, opts []bootstrap.Option) error {
 
 	// Install postToolUse hook (if enabled)
 	if bootstrap.ContainsKey(opts, bootstrap.AnalyticsHookKey) {
-		reportHook := clipath.CommandOrBare("report-usage", "--client=github-copilot")
+		// Bare "sx" for the same reason as the install hook above: this file is
+		// committed to the user's repository.
+		reportHook := "sx report-usage --client=github-copilot"
 		if !hasHookWithCommand(config.Hooks["postToolUse"], reportHook) {
 			// Remove old hooks: "sx report-usage" (old format) and "skills report-usage" (pre-rename, tool was called "skills")
 			config.Hooks["postToolUse"] = removeHooksWithPrefix(config.Hooks["postToolUse"], "report-usage")

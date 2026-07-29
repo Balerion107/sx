@@ -252,3 +252,94 @@ func TestAppManagedSiblingAppBinary(t *testing.T) {
 		t.Fatal("app binary alongside the CLI must mark it app-managed")
 	}
 }
+
+// stubGOOS exercises platform-specific rules from any host.
+func stubGOOS(t *testing.T, name string) {
+	t.Helper()
+	prev := goos
+	goos = name
+	t.Cleanup(func() { goos = prev })
+}
+
+// A Windows path is full of backslashes; quoting on that alone produced hook
+// bodies that PowerShell parses as string expressions rather than commands.
+func TestShellQuoteWindows(t *testing.T) {
+	stubGOOS(t, "windows")
+	cases := []struct{ in, want string }{
+		{`C:\Users\bob\AppData\Local\sx\bin\sx.exe`, `C:\Users\bob\AppData\Local\sx\bin\sx.exe`},
+		{`C:\Program Files\sx\sx.exe`, `"C:\Program Files\sx\sx.exe"`},
+	}
+	for _, tc := range cases {
+		if got := shellQuote(tc.in); got != tc.want {
+			t.Fatalf("shellQuote(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestShellQuotePosix(t *testing.T) {
+	stubGOOS(t, "darwin")
+	if got := shellQuote("/opt/homebrew/bin/sx"); got != "/opt/homebrew/bin/sx" {
+		t.Fatalf("plain path should not be quoted, got %q", got)
+	}
+	got := shellQuote("/My Apps/sx.app/Contents/Resources/sx")
+	if got != `"/My Apps/sx.app/Contents/Resources/sx"` {
+		t.Fatalf("path with space = %q", got)
+	}
+}
+
+// Windows paths must survive Command intact and stay recognizable.
+func TestCommandWindowsPathWithSpace(t *testing.T) {
+	stubGOOS(t, "windows")
+	dir := filepath.Join(tempRoot(t), "Program Files")
+	path := writeFakeCLI(t, dir, "sx.exe")
+	t.Setenv(EnvOverride, path)
+	stubExecutable(t, filepath.Join(dir, "sx-app.exe"))
+	stubInstallDirs(t, nil)
+
+	cmd, err := Command("install", "--hook-mode", "--client=cline")
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	if !strings.HasPrefix(cmd, `"`) {
+		t.Fatalf("path with a space must be quoted: %s", cmd)
+	}
+	if strings.Contains(cmd, `\\`) {
+		t.Fatalf("Windows separators must not be doubled: %s", cmd)
+	}
+	if !Managed(cmd, "install") {
+		t.Fatalf("quoted Windows command not recognized: %s", cmd)
+	}
+}
+
+func TestNeedsRepair(t *testing.T) {
+	stubGOOS(t, "darwin")
+	existing := writeFakeCLI(t, tempRoot(t), "sx")
+
+	cases := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		// Written by a version that used os.Executable() from the app.
+		{"gui binary", "/Applications/sx.app/Contents/MacOS/sx-app", true},
+		{"gui binary windows", `C:\Program Files\sx\sx-app.exe`, true},
+		// Ours, but the file is gone — the app moved or a CLI was uninstalled.
+		{"absolute path that no longer exists", "/nope/sx", true},
+		// Ours and still working.
+		{"absolute path that exists", existing, false},
+		// A bare name defers to PATH at run time and cannot go stale.
+		{"bare sx", "sx", false},
+		{"bare sx with args", "sx serve", false},
+		// Not ours: a hand-written entry must survive untouched.
+		{"third-party server", "npx -y @acme/mcp-server", false},
+		{"python server", "/usr/bin/python3 -m my_server", false},
+		{"empty", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NeedsRepair(tc.cmd); got != tc.want {
+				t.Fatalf("NeedsRepair(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}

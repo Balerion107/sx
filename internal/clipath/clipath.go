@@ -35,10 +35,15 @@ var ErrNotFound = errors.New("clipath: no sx CLI binary found")
 // search below cannot reasonably guess.
 const EnvOverride = "SX_CLI_PATH"
 
+// goos is a seam: the Windows quoting and bundle-layout rules need to be
+// exercised from a non-Windows host, and nothing here depends on the real OS
+// beyond its name.
+var goos = runtime.GOOS
+
 // binaryName is the CLI's file name, which is deliberately not the app's
 // (wails builds "sx-app"), so a sibling lookup cannot pick the GUI by mistake.
 func binaryName() string {
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		return "sx.exe"
 	}
 	return "sx"
@@ -125,7 +130,7 @@ func candidates() []string {
 // often cannot see these on PATH, which is the whole reason hooks need an
 // absolute path. A var so tests can isolate from the host machine.
 var installDirs = func() []string {
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		if local := os.Getenv("LOCALAPPDATA"); local != "" {
 			return []string{filepath.Join(local, "sx", "bin"), filepath.Join(local, "Programs", "sx")}
 		}
@@ -149,7 +154,7 @@ func isExecutableFile(path string) bool {
 	if err != nil || info.IsDir() {
 		return false
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		return true
 	}
 	return info.Mode().Perm()&0o111 != 0
@@ -197,7 +202,7 @@ func AppManaged() bool {
 	}
 
 	// macOS: anywhere inside Foo.app/Contents/.
-	if runtime.GOOS == "darwin" {
+	if goos == "darwin" {
 		for dir := filepath.Dir(exe); ; {
 			parent := filepath.Dir(dir)
 			if parent == dir {
@@ -213,7 +218,7 @@ func AppManaged() bool {
 
 	// Windows and Linux: the CLI sits beside the app binary.
 	appName := "sx-app"
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		appName = "sx-app.exe"
 	}
 	return isExecutableFile(filepath.Join(filepath.Dir(exe), appName))
@@ -226,6 +231,58 @@ func AppManaged() bool {
 func CommandOrBare(args ...string) string {
 	cmd, _ := Command(args...)
 	return cmd
+}
+
+// NeedsRepair reports whether an existing config command was written by sx but
+// can no longer work, and should therefore be overwritten.
+//
+// Two cases qualify. An entry naming the desktop app's GUI binary was written
+// by a version that used os.Executable() from the app — it can never serve as
+// the CLI, since that binary has no subcommands. An entry naming an sx CLI at a
+// path that no longer exists was valid when written and went stale, typically
+// because the app moved or a separately installed CLI was removed.
+//
+// Anything else returns false. A command sx did not write is the user's, and a
+// hand-written "skills" MCP entry pointing at their own server must survive an
+// sx install untouched.
+func NeedsRepair(cmd string) bool {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return false
+	}
+	// Try the whole value before splitting. An MCP "command" is a bare
+	// executable path rather than a shell string, so a Windows path with a space
+	// ("C:\\Program Files\\sx\\sx-app.exe") would otherwise be read as an argv[0]
+	// of "C:\\Program" and classified as somebody else's binary.
+	if verdict, owned := repairVerdict(cmd); owned {
+		return verdict
+	}
+	fields := splitCommand(cmd)
+	if len(fields) == 0 {
+		return false
+	}
+	verdict, _ := repairVerdict(fields[0])
+	return verdict
+}
+
+// repairVerdict classifies a single argv[0]. owned is false when the binary is
+// not one sx writes, in which case verdict carries no meaning.
+func repairVerdict(argv0 string) (verdict, owned bool) {
+	base := normalizedBase(argv0)
+
+	// The GUI binary is ours and is never usable as the CLI.
+	if base == "sx-app" || base == "sx-app.exe" {
+		return true, true
+	}
+	if slices.Contains(legacyBinaryNames, base) {
+		// A bare name defers to PATH at run time, so it cannot go stale the way
+		// an absolute path can.
+		if argv0 == base {
+			return false, true
+		}
+		return !isExecutableFile(argv0), true
+	}
+	return false, false
 }
 
 // ResolveOrBare returns the resolved CLI path, or the bare name "sx" when none
@@ -243,7 +300,21 @@ func ResolveOrBare() string {
 	return "sx"
 }
 
+// shellQuote quotes a path for embedding in a shell command string, and only
+// when it has to.
+//
+// On Windows a backslash is a path separator, not an escape: quoting every path
+// because it contains one made hook bodies unnecessarily quoted, and doubling
+// the separators is meaningless there. Only a genuine space forces quoting, and
+// nothing inside is escaped — cmd.exe and PowerShell both treat a
+// double-quoted run as literal.
 func shellQuote(s string) string {
+	if goos == "windows" {
+		if !strings.ContainsAny(s, " \t") {
+			return s
+		}
+		return `"` + s + `"`
+	}
 	if !strings.ContainsAny(s, " \t\"'\\$`") {
 		return s
 	}
@@ -263,10 +334,7 @@ func Managed(cmd string, subcommands ...string) bool {
 	if len(fields) == 0 {
 		return false
 	}
-	// Normalize separators so a Windows-style path in a config is recognized on
-	// any host: filepath.Base does not treat "\" as a separator off Windows,
-	// and these config files get synced between machines.
-	base := strings.ToLower(path.Base(filepath.ToSlash(strings.ReplaceAll(fields[0], `\`, "/"))))
+	base := normalizedBase(fields[0])
 	if !slices.Contains(legacyBinaryNames, base) {
 		return false
 	}
@@ -283,6 +351,14 @@ func Managed(cmd string, subcommands ...string) bool {
 		}
 	}
 	return false
+}
+
+// normalizedBase returns argv[0]'s lowercased file name with separators
+// normalized, so a Windows-style path in a config is recognized on any host:
+// filepath.Base does not treat "\" as a separator off Windows, and these config
+// files get synced between machines.
+func normalizedBase(argv0 string) string {
+	return strings.ToLower(path.Base(filepath.ToSlash(strings.ReplaceAll(argv0, `\`, "/"))))
 }
 
 // splitCommand splits on whitespace while keeping a quoted argv[0] intact,
