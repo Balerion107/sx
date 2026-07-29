@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // The vault icon lives at .sx/vault-icon — raw image bytes, mime sniffed

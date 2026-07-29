@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // seedScopedRBACVault is seedRBACVault plus a starting scope set on my-skill, so

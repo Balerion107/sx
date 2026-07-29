@@ -11,10 +11,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // AssetShimRegistrar registers Pulse-style asset listing/loading MCP tools onto

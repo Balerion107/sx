@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/cloud"
-	"github.com/sleuth-io/sx/internal/cloud/cloudtest"
+	"github.com/sleuth-io/sx/v2/internal/cloud"
+	"github.com/sleuth-io/sx/v2/internal/cloud/cloudtest"
 )
 
 func TestParseAttachCommandLine(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // The Manage Installations dialog round-trip: every scope kind reads

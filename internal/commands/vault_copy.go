@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/config"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
-	"github.com/sleuth-io/sx/internal/vaultcopy"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/vaultcopy"
 )
 
 func newVaultCopyCommand() *cobra.Command {

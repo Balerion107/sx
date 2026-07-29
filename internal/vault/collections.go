@@ -3,8 +3,8 @@ package vault
 import (
 	"context"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // Collections are named asset groupings. File-backed vaults store them in

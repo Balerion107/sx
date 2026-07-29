@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
 )
 
 // TestPromptForRepoURL_Normalization pins SD-10170: the server matches repos by

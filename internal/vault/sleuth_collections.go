@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Collections on a Sleuth vault live server-side (skills.new). The

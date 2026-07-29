@@ -9,10 +9,10 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	geminihandlers "github.com/sleuth-io/sx/internal/clients/gemini/handlers"
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	geminihandlers "github.com/sleuth-io/sx/v2/internal/clients/gemini/handlers"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // Collection bundle export — the extension API's "export" capability

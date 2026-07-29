@@ -32,8 +32,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/zalando/go-keyring"
 
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // CredentialFileName is the TOML file that holds the active relay's

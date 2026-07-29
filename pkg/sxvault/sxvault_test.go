@@ -18,9 +18,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/sleuth-io/sx/internal/git"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 func TestGitPutAgentWritesSXVaultFormat(t *testing.T) {

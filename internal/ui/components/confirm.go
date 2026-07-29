@@ -13,8 +13,8 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 	"golang.org/x/term"
 
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/theme"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/theme"
 )
 
 // confirmModel is the bubbletea model for the confirm component.

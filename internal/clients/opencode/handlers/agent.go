@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // AgentHandler installs OpenCode agents as markdown files.

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/utils"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Full-text content search behind the main search box. Name/description

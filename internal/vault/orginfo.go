@@ -3,7 +3,7 @@ package vault
 import (
 	"context"
 
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // OrgInfo reports the organization behind a sleuth vault: its display name

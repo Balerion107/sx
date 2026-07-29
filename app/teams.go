@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Teams group people so assets can be shared with exactly the right set of

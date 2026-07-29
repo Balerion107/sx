@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/git"
 )
 
 // Config represents the minimal configuration needed to create a vault

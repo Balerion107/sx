@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/handlers/hook"
-	"github.com/sleuth-io/sx/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/handlers/hook"
+	"github.com/sleuth-io/sx/v2/internal/ui"
 )
 
 // captureOutput renders processInstallationResults into a buffer so tests

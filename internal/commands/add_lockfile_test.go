@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // spyVault records SetInstallations / InheritInstallations calls so unit

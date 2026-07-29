@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // TeamAssetLister reports which assets are shared with each team — the

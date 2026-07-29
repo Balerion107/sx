@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/cache"
-	"github.com/sleuth-io/sx/internal/git"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // GitSourceHandler handles assets with source-git

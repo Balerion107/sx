@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/ui/components"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // NewRemoveCommand creates the remove command (deprecated: use 'sx vault remove')

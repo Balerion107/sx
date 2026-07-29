@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Extension cache: local copies of the vault's extensions (manifest +

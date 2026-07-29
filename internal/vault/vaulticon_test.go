@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 func TestPathVaultIconRoundTrip(t *testing.T) {

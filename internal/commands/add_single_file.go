@@ -9,10 +9,10 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // isSingleFileAsset checks if the path is a single file that can be treated as an asset.

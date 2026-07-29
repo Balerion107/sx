@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // TestPromptForValidGitURL covers the init-time URL validation loop.

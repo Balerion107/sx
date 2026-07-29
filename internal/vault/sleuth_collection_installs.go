@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Collection installs on a Sleuth vault are server-side

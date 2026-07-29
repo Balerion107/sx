@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // Derived plugin-marketplace manifests, regenerated on every manifest save

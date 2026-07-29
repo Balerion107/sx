@@ -15,12 +15,12 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/sleuth-io/sx/internal/cache"
-	"github.com/sleuth-io/sx/internal/config"
-	gitpkg "github.com/sleuth-io/sx/internal/git"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/utils"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	gitpkg "github.com/sleuth-io/sx/v2/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Settings exposes the shared sx configuration (the same one the CLI uses)

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 func searchTestApp(t *testing.T) *App {

@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
 )
 
 // NewProfileCommand creates the profile command with subcommands

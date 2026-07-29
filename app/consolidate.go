@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Asset consolidation (API 1.9.0, docs/skill-dedupe-spec.md): collapse a

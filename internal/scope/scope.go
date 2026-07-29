@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // Re-export scope type constants from lockfile for convenience

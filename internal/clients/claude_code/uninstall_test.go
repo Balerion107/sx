@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 )
 
 // TestUninstallHooks tests that UninstallHooks removes skills-related hooks

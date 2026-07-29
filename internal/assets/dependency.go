@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // DependencyResolver resolves asset dependencies

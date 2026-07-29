@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients/kiro/handlers"
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients/kiro/handlers"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 const (

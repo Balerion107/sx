@@ -3,9 +3,9 @@ package codex
 import (
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/clients/codex/handlers"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/clients/codex/handlers"
 )
 
 // RuleCapabilities exposes Codex-owned single-file detection. Codex does

@@ -19,9 +19,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/scope"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/scope"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // FileName is the path, relative to the vault root, where the manifest lives.

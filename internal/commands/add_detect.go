@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/github"
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/publish"
-	"github.com/sleuth-io/sx/internal/ui/components"
-	"github.com/sleuth-io/sx/internal/utils"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/github"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/publish"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // canonicalPromptFilenames maps prompt-file asset types to their canonical

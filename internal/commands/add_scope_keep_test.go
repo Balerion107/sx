@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/components"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // emptyVault is a no-op vault used to drive promptForRepositoriesWithUI without

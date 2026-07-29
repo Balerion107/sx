@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients/cursor/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clients/cursor/handlers"
 )
 
 // TestUninstallHooks tests that UninstallHooks removes skills-related hooks

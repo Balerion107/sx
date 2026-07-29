@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/cache"
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/theme"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/theme"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // selfUninstallLongHelp renders the long help text for sx self-uninstall

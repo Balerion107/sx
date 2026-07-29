@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/clients/cursor"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/clients/cursor"
 )
 
 func init() {

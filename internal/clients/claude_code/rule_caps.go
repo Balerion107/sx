@@ -8,9 +8,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 // RuleCapabilities returns the rule capabilities for Claude Code

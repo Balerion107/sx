@@ -3,7 +3,7 @@ package lockfile
 import (
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 func TestParseValidLockFile(t *testing.T) {

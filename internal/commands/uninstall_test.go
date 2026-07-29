@@ -8,13 +8,13 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/gitutil"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/gitutil"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/ui"
 )
 
 // stubClient is a minimal clients.Client implementation for testing

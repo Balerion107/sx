@@ -127,7 +127,7 @@ jobs:
             EXTRA="-tags webkit2_41"
           fi
           wails build -platform ${{ matrix.platform }} $EXTRA \
-            -ldflags "-X github.com/sleuth-io/sx/internal/buildinfo.Version=${TAG#v}"
+            -ldflags "-X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}"
         env:
           CGO_ENABLED: 1
           RELEASE_TAG: ${{ inputs.release_tag }}

@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/clients/claude_code/handlers"
-	"github.com/sleuth-io/sx/internal/handlers/dirasset"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/clients/claude_code/handlers"
+	"github.com/sleuth-io/sx/v2/internal/handlers/dirasset"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
 
 var skillOps = dirasset.NewOperations(handlers.DirSkills, &asset.TypeSkill)

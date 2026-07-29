@@ -3,8 +3,8 @@ package manifest
 import (
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // TestResolve_BotIdentity verifies that a bot caller's resolved lock

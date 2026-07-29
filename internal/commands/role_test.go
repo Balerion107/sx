@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/config"
 )
 
 // setupSleuthConfig creates a Sleuth-type config pointing to the given server URL.

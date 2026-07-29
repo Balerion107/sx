@@ -6,8 +6,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // TestMCPMetadataInZip tests that MCP metadata survives being zipped and extracted

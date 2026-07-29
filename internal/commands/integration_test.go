@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/clients/claude_code"
-	"github.com/sleuth-io/sx/internal/clients/codex"
-	"github.com/sleuth-io/sx/internal/clients/cursor"
-	"github.com/sleuth-io/sx/internal/clients/gemini"
-	"github.com/sleuth-io/sx/internal/clients/opencode"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/clients/claude_code"
+	"github.com/sleuth-io/sx/v2/internal/clients/codex"
+	"github.com/sleuth-io/sx/v2/internal/clients/cursor"
+	"github.com/sleuth-io/sx/v2/internal/clients/gemini"
+	"github.com/sleuth-io/sx/v2/internal/clients/opencode"
 )
 
 func init() {

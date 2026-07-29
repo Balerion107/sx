@@ -10,12 +10,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/utils"
-	"github.com/sleuth-io/sx/internal/vault/layout"
-	"github.com/sleuth-io/sx/internal/version"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/vault/layout"
+	"github.com/sleuth-io/sx/v2/internal/version"
 )
 
 // This file implements the v1 → v2 storage-format migration for file-backed

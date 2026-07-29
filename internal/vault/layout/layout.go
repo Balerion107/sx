@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 // Version identifies a vault storage format.

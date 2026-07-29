@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Sleuth vault management methods. These call the existing pulse GraphQL

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/assets"
 )
 
 // `sx uninstall` should only remove assets installed by the current profile.

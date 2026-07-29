@@ -11,12 +11,56 @@ Git, and local Path) behind a single `Client` type, so you write the same
 code regardless of where the vault lives.
 
 ```bash
-go get github.com/sleuth-io/sx/pkg/sxvault
+go get github.com/sleuth-io/sx/v2/pkg/sxvault
 ```
 
 ```go
-import "github.com/sleuth-io/sx/pkg/sxvault"
+import "github.com/sleuth-io/sx/v2/pkg/sxvault"
 ```
+
+## Module path and versions
+
+The module path carries a `/v2` suffix, as Go's
+[semantic import versioning](https://go.dev/ref/mod#major-version-suffixes)
+requires for major version 2 and above.
+
+Releases before this change were tagged `v2.x` without the suffix, which meant
+Go could not resolve them at all — `go get` topped out at `v1.8.1` no matter
+which `v2` tag was published.
+
+### Upgrading from v1.x
+
+The Go API is source-compatible: no exported function, type, field, or error
+was added, removed, or changed between `v1.8.1` and this release. In source
+terms the upgrade is an import-path rewrite and nothing more:
+
+```bash
+go mod edit -droprequire github.com/sleuth-io/sx
+go get github.com/sleuth-io/sx/v2/pkg/sxvault@latest
+# then rewrite imports:
+#   github.com/sleuth-io/sx/pkg/... -> github.com/sleuth-io/sx/v2/pkg/...
+```
+
+**But read this before you upgrade a program that writes to a Git vault.** The
+on-disk vault layout changed in v2: assets moved from
+`assets/<name>/<version>/` to `.sx/versions/<name>/<version>/`. Opening a
+v1-layout Git vault with a v2 client **migrates that vault in place and commits
+the result** (see `ensureMigratedLocked` in `internal/vault/migratev2.go`).
+
+That migration is the reason this is a major version rather than a `v1.9.0` on
+the old path. The API would have compiled either way; the storage would have
+been rewritten under callers with no signal.
+
+So:
+
+- **Upgrading a program whose vaults you control** — fine, let it migrate. Back
+  up or branch first if the vault is a Git repo you care about.
+- **Needing to read a v1 vault without converting it** — use `sx vault copy`,
+  which reads a v1-format source and writes to a separate v2 destination,
+  leaving the source untouched. See [copy.md](copy.md) and
+  [v2-spec.md](v2-spec.md).
+- **Not ready for either** — stay on `v1.8.1`. `pkg/sxvault/sxvault.go` is
+  byte-identical there, so you are not missing library fixes by waiting.
 
 ## Scope of the facade
 

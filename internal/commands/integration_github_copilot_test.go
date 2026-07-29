@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/bootstrap"
-	"github.com/sleuth-io/sx/internal/clients"
-	github_copilot "github.com/sleuth-io/sx/internal/clients/github_copilot"
-	"github.com/sleuth-io/sx/internal/clients/github_copilot/handlers"
+	"github.com/sleuth-io/sx/v2/internal/bootstrap"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	github_copilot "github.com/sleuth-io/sx/v2/internal/clients/github_copilot"
+	"github.com/sleuth-io/sx/v2/internal/clients/github_copilot/handlers"
 )
 
 func init() {

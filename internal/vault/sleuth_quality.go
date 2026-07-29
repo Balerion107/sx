@@ -10,7 +10,7 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Sleuth-vault quality storage (docs/quality-spec.md): the server twin of

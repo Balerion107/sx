@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // runInstallSetTarget points an existing asset at one or more scopes. It runs

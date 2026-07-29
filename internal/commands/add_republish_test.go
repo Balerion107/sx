@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 // TestRepublishUpdatesManifestRowInPlace covers issue #190: publishing a new

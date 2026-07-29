@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/components"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/components"
 )
 
 // orgAdminManager is implemented by file-backed vaults that store the

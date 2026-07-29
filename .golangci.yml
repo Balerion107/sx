@@ -99,7 +99,7 @@ linters:
         - errors.Unwrap(
       # Don't require wrapping for our own internal packages
       ignore-package-globs:
-        - github.com/sleuth-io/sx/internal/*
+        - github.com/sleuth-io/sx/v2/internal/*
 
     # 4. Line Length
     lll:

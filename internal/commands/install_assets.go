@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/scope"
-	"github.com/sleuth-io/sx/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/scope"
+	"github.com/sleuth-io/sx/v2/internal/ui"
 )
 
 // downloadAssetsResult holds the result of downloading assets

@@ -13,9 +13,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/creativeprojects/go-selfupdate"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	"github.com/sleuth-io/sx/internal/cache"
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 const (

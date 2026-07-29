@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
 )
 
 // TestCLIAssetFilter guards the fix for the 2.0.0 auto-update break: the

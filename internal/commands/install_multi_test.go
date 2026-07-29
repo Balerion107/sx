@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/scope"
-	"github.com/sleuth-io/sx/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/scope"
+	"github.com/sleuth-io/sx/v2/internal/ui"
 )
 
 // buildProfileLock constructs a profileLockFile suitable for merge

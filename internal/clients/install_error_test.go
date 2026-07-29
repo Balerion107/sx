@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/handlers/hook"
+	"github.com/sleuth-io/sx/v2/internal/handlers/hook"
 )
 
 func TestTranslateInstallError(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // LockFile represents the complete lock file structure

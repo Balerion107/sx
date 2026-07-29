@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/config"
 )
 
 // setupTestConfig creates a test config file with the given ForceEnabled and ForceDisabled clients

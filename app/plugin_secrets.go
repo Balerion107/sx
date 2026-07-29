@@ -10,8 +10,8 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 // Extension secrets (API 1.4.0, docs/app-plugins-spec.md). API keys and

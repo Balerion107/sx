@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 func qualityTestApp(t *testing.T) *App {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 func TestForVersion(t *testing.T) {

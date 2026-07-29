@@ -15,11 +15,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/vault"
-	"github.com/sleuth-io/sx/internal/version"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/version"
 )
 
 // Options selects which categories to copy and whether to run read-only.

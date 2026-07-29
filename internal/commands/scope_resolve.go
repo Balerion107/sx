@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // scopeMode is the single, command-agnostic way to express how a set of scope

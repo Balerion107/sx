@@ -1,9 +1,9 @@
 package commands
 
 import (
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 // filterInstalledForProfile keeps the tracker entries that belong to the

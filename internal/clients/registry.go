@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // sortClientsByID returns the clients sorted by their ID. Used at every

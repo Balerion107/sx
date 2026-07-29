@@ -6,9 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/logger"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // buildCloudServeMCPServerFromConfig constructs a fresh MCP server with the

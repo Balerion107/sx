@@ -14,10 +14,10 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/version"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/version"
 )
 
 // UpdateInfo tells the frontend the outcome of the startup update check.

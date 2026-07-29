@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 // TestEnv provides an isolated test environment with common setup utilities.

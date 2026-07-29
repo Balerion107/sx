@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 // Backoff bounds for automatic WebSocket reconnection. A disconnected

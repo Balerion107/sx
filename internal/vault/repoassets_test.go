@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
 )
 
 func TestManifestRepoAssetsGroupsRepoAndPathScopes(t *testing.T) {

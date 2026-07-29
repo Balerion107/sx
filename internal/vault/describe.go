@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/asset"
 )
 
 // maxDescribeRead bounds how much of a markdown file the description

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/sleuth-io/sx/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // Bots are non-human identities skills can be installed into. Like

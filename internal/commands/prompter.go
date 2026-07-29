@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/ui/theme"
+	"github.com/sleuth-io/sx/v2/internal/ui/theme"
 )
 
 // Prompter provides an interface for interactive prompts

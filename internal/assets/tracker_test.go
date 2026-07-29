@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
 func TestGetTrackerPath(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sleuth-io/sx/internal/cache"
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/logger"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // fetchLockFile fetches and parses the lock file for a single profile,

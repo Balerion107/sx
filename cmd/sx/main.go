@@ -8,23 +8,23 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sleuth-io/sx/internal/autoupdate"
-	"github.com/sleuth-io/sx/internal/buildinfo"
-	_ "github.com/sleuth-io/sx/internal/clients/claude_code"    // Register Claude Code client
-	_ "github.com/sleuth-io/sx/internal/clients/cline"          // Register Cline client
-	_ "github.com/sleuth-io/sx/internal/clients/codex"          // Register Codex client
-	_ "github.com/sleuth-io/sx/internal/clients/cursor"         // Register Cursor client
-	_ "github.com/sleuth-io/sx/internal/clients/gemini"         // Register Gemini Code Assist client
-	_ "github.com/sleuth-io/sx/internal/clients/github_copilot" // Register GitHub Copilot client
-	_ "github.com/sleuth-io/sx/internal/clients/kiro"           // Register Kiro client
-	_ "github.com/sleuth-io/sx/internal/clients/openclaw"       // Register OpenClaw client
-	_ "github.com/sleuth-io/sx/internal/clients/opencode"       // Register OpenCode client
-	"github.com/sleuth-io/sx/internal/commands"
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/git"
-	"github.com/sleuth-io/sx/internal/logger"
-	"github.com/sleuth-io/sx/internal/ui"
-	"github.com/sleuth-io/sx/internal/ui/theme"
+	"github.com/sleuth-io/sx/v2/internal/autoupdate"
+	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	_ "github.com/sleuth-io/sx/v2/internal/clients/claude_code"    // Register Claude Code client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/cline"          // Register Cline client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/codex"          // Register Codex client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/cursor"         // Register Cursor client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/gemini"         // Register Gemini Code Assist client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/github_copilot" // Register GitHub Copilot client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/kiro"           // Register Kiro client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/openclaw"       // Register OpenClaw client
+	_ "github.com/sleuth-io/sx/v2/internal/clients/opencode"       // Register OpenCode client
+	"github.com/sleuth-io/sx/v2/internal/commands"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/git"
+	"github.com/sleuth-io/sx/v2/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+	"github.com/sleuth-io/sx/v2/internal/ui/theme"
 )
 
 func joinStrings(items []string, sep string) string {

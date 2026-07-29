@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/clients"
-	"github.com/sleuth-io/sx/internal/logger"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/clients"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 // hookAssetInfo holds name and type for display purposes in hook mode

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sleuth-io/sx/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // sshGitURLPattern matches SSH git URLs like git@gitlab.com:org/repo.git

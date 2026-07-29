@@ -10,11 +10,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/assets/detectors"
-	"github.com/sleuth-io/sx/internal/metadata"
-	"github.com/sleuth-io/sx/internal/utils"
-	"github.com/sleuth-io/sx/internal/version"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/assets/detectors"
+	"github.com/sleuth-io/sx/v2/internal/metadata"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	"github.com/sleuth-io/sx/v2/internal/version"
 )
 
 // VersionReader is the slice of the vault interface SuggestVersion needs.

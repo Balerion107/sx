@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/assets"
-	"github.com/sleuth-io/sx/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/config"
 )
 
 // setupTwoProfiles writes a multi-profile config with two path vaults,

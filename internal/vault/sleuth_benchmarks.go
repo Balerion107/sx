@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Sleuth-vault benchmark storage (docs/benchmarks-spec.md): the server

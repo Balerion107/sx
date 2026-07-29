@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // newTestApp is the one way tests construct an App. It registers the

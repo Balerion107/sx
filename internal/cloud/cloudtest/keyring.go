@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/cloud"
+	"github.com/sleuth-io/sx/v2/internal/cloud"
 )
 
 // Keyring is an in-memory “cloud.TokenStore“ for use in tests that

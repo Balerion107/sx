@@ -17,9 +17,9 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/sleuth-io/sx/internal/config"
-	"github.com/sleuth-io/sx/internal/utils"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // Library icons personalize the switcher. Git and path libraries store the

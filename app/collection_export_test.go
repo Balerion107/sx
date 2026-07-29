@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sleuth-io/sx/internal/asset"
-	"github.com/sleuth-io/sx/internal/utils"
-	vaultpkg "github.com/sleuth-io/sx/internal/vault"
+	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/utils"
+	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
 // exportTestApp is pluginTestApp plus a real path vault, one skill and

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sleuth-io/sx/internal/manifest"
-	vaultgql "github.com/sleuth-io/sx/internal/vault/graphql"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	vaultgql "github.com/sleuth-io/sx/v2/internal/vault/graphql"
 )
 
 // Sleuth-vault extension support (the spec's P5): the server stores

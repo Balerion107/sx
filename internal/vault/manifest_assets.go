@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/sleuth-io/sx/internal/lockfile"
-	"github.com/sleuth-io/sx/internal/manifest"
-	"github.com/sleuth-io/sx/internal/mgmt"
-	"github.com/sleuth-io/sx/internal/vault/layout"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/vault/layout"
 )
 
 // resolveLockBytesForActor loads the vault's manifest and returns the
