@@ -47,6 +47,8 @@ Two front doors, one library. The app and the CLI share a single configuration, 
 - **The app** — for everyone. Create and edit skills in a built-in editor (or drag files in), publish to your team, install into your AI tools with one click. No terminal anywhere. [Download for macOS, Windows, or Linux](https://github.com/sleuth-io/sx/releases) (the `sx-app-*` artifacts).
 - **The CLI** — for engineers and automation. The same operations, scriptable: pin it in CI, wire it into hooks, drive it from your own tools. Install below.
 
+The app ships the matching CLI inside itself, because some of what it installs — session hooks, MCP server entries — is configuration your AI client executes later and needs a real binary to run. So installing only the app is a complete setup; you do not also need to install the CLI for hooks to work. Install the CLI separately when you want `sx` in your own terminal.
+
 ## Quickstart
 
 **Install via Homebrew (macOS/Linux):**

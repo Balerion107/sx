@@ -15,6 +15,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/cursor/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/handlers/dirasset"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/logger"
@@ -363,7 +364,10 @@ func (c *Client) registerSkillsMCPServer() error {
 	}
 
 	// Get path to skills binary
-	skillsBinary, err := os.Executable()
+	// The MCP entry is executed later by the client, so it needs the CLI, not
+	// whichever binary happens to be running now — os.Executable() is the GUI
+	// binary when this runs from the desktop app, and that has no subcommands.
+	skillsBinary, err := clipath.Resolve()
 	if err != nil {
 		return err
 	}

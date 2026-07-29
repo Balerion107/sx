@@ -132,6 +132,46 @@ jobs:
           CGO_ENABLED: 1
           RELEASE_TAG: ${{ inputs.release_tag }}
 
+      # The app writes client hooks and MCP entries that invoke the sx CLI
+      # later, in environments it does not control. Ship the matching CLI inside
+      # the app so those configs can name an absolute path that exists on an
+      # app-only machine — see internal/clipath.
+      #
+      # Built from the same commit and stamped with the same version as the app,
+      # deliberately: the on-disk vault format is versioned, so a mismatched
+      # pair could migrate a vault with the wrong code.
+      - name: Build bundled CLI
+        shell: bash
+        run: |
+          TAG="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          GOOS_ARG=""
+          GOARCH_ARG=""
+          case "${{ matrix.platform }}" in
+            darwin/*)  GOOS_ARG=darwin  ;;
+            windows/*) GOOS_ARG=windows ;;
+            linux/*)   GOOS_ARG=linux   ;;
+          esac
+          case "${{ matrix.platform }}" in
+            */arm64) GOARCH_ARG=arm64 ;;
+            */amd64) GOARCH_ARG=amd64 ;;
+          esac
+
+          # macOS keeps helper executables in Contents/Resources; Windows and
+          # Linux ship the CLI beside the app binary. clipath knows both layouts.
+          case "$GOOS_ARG" in
+            darwin)  OUT="app/build/bin/sx.app/Contents/Resources/sx" ;;
+            windows) OUT="app/build/bin/sx.exe" ;;
+            *)       OUT="app/build/bin/sx" ;;
+          esac
+          mkdir -p "$(dirname "$OUT")"
+
+          CGO_ENABLED=0 GOOS="$GOOS_ARG" GOARCH="$GOARCH_ARG" go build \
+            -ldflags "-X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}" \
+            -o "$OUT" ./cmd/sx
+          ls -l "$OUT"
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+
       # Sign + notarize + staple when the secrets exist (Developer ID),
       # ad-hoc sign with a clear -unsigned suffix when they don't — so
       # forks and pre-enrollment builds keep working.

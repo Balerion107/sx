@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/utils"
 )
@@ -46,7 +47,7 @@ func installSessionHook() error {
 	}
 
 	hookPath := filepath.Join(hooksDir, HookEventTaskStart)
-	hookCommand := "sx install --hook-mode --client=cline"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=cline")
 
 	// Check if hook already exists and is managed by sx
 	if existingContent, err := os.ReadFile(hookPath); err == nil {
@@ -91,7 +92,7 @@ func installAnalyticsHook() error {
 	}
 
 	hookPath := filepath.Join(hooksDir, HookEventPostToolUse)
-	hookCommand := "sx report-usage --client=cline"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=cline")
 
 	// Check if hook already exists and is managed by sx
 	if existingContent, err := os.ReadFile(hookPath); err == nil {

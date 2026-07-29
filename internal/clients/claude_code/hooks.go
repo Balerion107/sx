@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients/claude_code/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/utils"
 )
@@ -112,7 +112,7 @@ func installSessionStartHook(claudeDir string) error {
 		sessionStart = []any{}
 	}
 
-	hookCommand := "sx install --hook-mode --client=claude-code"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code")
 
 	// First, check if exact hook command already exists
 	exactMatch := false
@@ -127,7 +127,7 @@ func installSessionStartHook(claudeDir string) error {
 								exactMatch = true
 								break
 							}
-							if strings.HasPrefix(cmd, "sx install") || strings.HasPrefix(cmd, "skills install") {
+							if clipath.Managed(cmd, "install") {
 								oldHookRef = hMap // Remember for updating
 							}
 						}
@@ -230,7 +230,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove SessionStart hook if requested
 			if uninstallSession {
 				if sessionStart, ok := hooks["SessionStart"].([]any); ok {
-					filtered := removeSxHooks(sessionStart, "sx install", "skills install")
+					filtered := removeSxHooks(sessionStart, "install")
 					if len(filtered) != len(sessionStart) {
 						modified = true
 						if len(filtered) == 0 {
@@ -246,7 +246,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove PostToolUse hook if requested
 			if uninstallAnalytics {
 				if postToolUse, ok := hooks["PostToolUse"].([]any); ok {
-					filtered := removeSxHooks(postToolUse, "sx report-usage", "skills report-usage")
+					filtered := removeSxHooks(postToolUse, "report-usage")
 					if len(filtered) != len(postToolUse) {
 						modified = true
 						if len(filtered) == 0 {
@@ -288,8 +288,10 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 	return nil
 }
 
-// removeSxHooks filters out hooks whose command starts with any of the given prefixes
-func removeSxHooks(hooks []any, commandPrefixes ...string) []any {
+// removeSxHooks filters out hook entries that invoke sx with any of the given
+// subcommands, in either the legacy bare-"sx" form or the absolute-path form
+// current versions write.
+func removeSxHooks(hooks []any, subcommands ...string) []any {
 	var filtered []any
 	for _, item := range hooks {
 		hookMap, ok := item.(map[string]any)
@@ -315,13 +317,8 @@ func removeSxHooks(hooks []any, commandPrefixes ...string) []any {
 			if !ok {
 				continue
 			}
-			for _, prefix := range commandPrefixes {
-				if strings.HasPrefix(cmd, prefix) {
-					hasSxCommand = true
-					break
-				}
-			}
-			if hasSxCommand {
+			if clipath.Managed(cmd, subcommands...) {
+				hasSxCommand = true
 				break
 			}
 		}
@@ -362,7 +359,7 @@ func installUsageReportingHook(claudeDir string) error {
 		postToolUse = []any{}
 	}
 
-	hookCommand := "sx report-usage --client=claude-code"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=claude-code")
 
 	// Check if our hook already exists (check for both old and new command formats)
 	hookExists := false
@@ -377,7 +374,7 @@ func installUsageReportingHook(claudeDir string) error {
 								hookExists = true
 								break
 							}
-							if cmd == "skills report-usage" || cmd == "sx report-usage" || cmd == "skills report-usage --client=claude-code" {
+							if clipath.Managed(cmd, "report-usage") {
 								oldHookRef = hMap // Remember for updating
 							}
 						}
