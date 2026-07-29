@@ -174,6 +174,51 @@ func Command(args ...string) (string, error) {
 	return strings.Join(parts, " "), nil
 }
 
+// AppManaged reports whether the running binary is the CLI copy that ships
+// inside the desktop app.
+//
+// Such a copy must not self-update. The CLI's updater overwrites its own
+// executable in place, and that executable lives inside a signed, notarized
+// .app — rewriting a file in there invalidates the bundle signature, which on
+// macOS can stop the app from launching at all. /Applications is typically
+// writable by admin users, so this would tend to succeed at breaking things.
+//
+// It would also be pointless: the app's updater swaps the whole bundle, so a
+// CLI that updated itself gets replaced on the app's next update anyway. And it
+// would reintroduce exactly the app/CLI version skew that bundling exists to
+// prevent. The app updates this copy; the CLI stays out of it.
+func AppManaged() bool {
+	exe, err := executable()
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+
+	// macOS: anywhere inside Foo.app/Contents/.
+	if runtime.GOOS == "darwin" {
+		for dir := filepath.Dir(exe); ; {
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			if filepath.Base(dir) == "Contents" && strings.HasSuffix(filepath.Base(parent), ".app") {
+				return true
+			}
+			dir = parent
+		}
+		return false
+	}
+
+	// Windows and Linux: the CLI sits beside the app binary.
+	appName := "sx-app"
+	if runtime.GOOS == "windows" {
+		appName = "sx-app.exe"
+	}
+	return isExecutableFile(filepath.Join(filepath.Dir(exe), appName))
+}
+
 // CommandOrBare is Command with the not-found error folded away, for the many
 // call sites that cannot do anything useful about a missing CLI. The bare "sx"
 // form it falls back to is exactly what these configs contained before, so the

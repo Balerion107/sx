@@ -15,6 +15,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/buildinfo"
 	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
@@ -101,6 +102,12 @@ func pendingUpdatePath() (string, error) {
 // Returns true if an update was applied (caller should re-exec).
 func ApplyPendingUpdate() bool {
 	if isEnvTrue("DISABLE_AUTOUPDATER") || isDevBuild() {
+		return false
+	}
+	// The copy bundled in the desktop app is updated by the app, which swaps the
+	// whole bundle. Self-updating here would rewrite a file inside a signed
+	// .app and invalidate its signature — see clipath.AppManaged.
+	if clipath.AppManaged() {
 		return false
 	}
 
@@ -202,6 +209,11 @@ func CheckAndUpdateInBackground() {
 func checkAndUpdate() error {
 	// Skip if auto-update is disabled via environment (e.g., Homebrew installations)
 	if isEnvTrue("DISABLE_AUTOUPDATER") {
+		return nil
+	}
+
+	// The desktop app owns the lifecycle of its bundled CLI.
+	if clipath.AppManaged() {
 		return nil
 	}
 

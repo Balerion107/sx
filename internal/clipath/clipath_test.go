@@ -196,3 +196,59 @@ func TestManaged(t *testing.T) {
 		})
 	}
 }
+
+// The bundled CLI must never self-update: its executable lives inside a signed
+// .app, and rewriting a file in there invalidates the bundle signature.
+func TestAppManagedInsideMacOSBundle(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("bundle detection is darwin-specific")
+	}
+	root := tempRoot(t)
+	// The CLI ships in Contents/Resources.
+	stubExecutable(t, filepath.Join(root, "sx.app", "Contents", "Resources", "sx"))
+	if !AppManaged() {
+		t.Fatal("CLI inside sx.app/Contents/Resources must be app-managed")
+	}
+	// Anywhere under Contents counts — helper layouts vary.
+	stubExecutable(t, filepath.Join(root, "sx.app", "Contents", "MacOS", "sx"))
+	if !AppManaged() {
+		t.Fatal("CLI inside sx.app/Contents/MacOS must be app-managed")
+	}
+}
+
+func TestAppManagedFalseForStandaloneCLI(t *testing.T) {
+	root := tempRoot(t)
+	for _, p := range []string{
+		filepath.Join(root, "bin", "sx"),
+		filepath.Join(root, ".local", "bin", "sx"),
+		filepath.Join(root, "opt", "homebrew", "bin", "sx"),
+		// A directory merely named like an app, without the Contents layout.
+		filepath.Join(root, "sx.app", "sx"),
+	} {
+		stubExecutable(t, p)
+		if AppManaged() {
+			t.Fatalf("%s is a standalone CLI and must self-update normally", p)
+		}
+	}
+}
+
+// On Windows and Linux the CLI ships beside the app binary rather than in a
+// bundle, so the app binary's presence is the signal.
+func TestAppManagedSiblingAppBinary(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("darwin uses the bundle layout")
+	}
+	dir := tempRoot(t)
+	stubExecutable(t, filepath.Join(dir, binaryName()))
+	if AppManaged() {
+		t.Fatal("no app binary alongside: must not be app-managed")
+	}
+	appName := "sx-app"
+	if runtime.GOOS == "windows" {
+		appName = "sx-app.exe"
+	}
+	writeFakeCLI(t, dir, appName)
+	if !AppManaged() {
+		t.Fatal("app binary alongside the CLI must mark it app-managed")
+	}
+}

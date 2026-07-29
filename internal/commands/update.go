@@ -10,6 +10,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/autoupdate"
 	"github.com/sleuth-io/sx/v2/internal/buildinfo"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/ui/components"
 )
 
@@ -46,6 +47,18 @@ func runUpdate(cmd *cobra.Command, checkOnly bool) error {
 	currentVersion := buildinfo.Version
 	if currentVersion == "dev" || currentVersion == "" {
 		out.printErr("Cannot update development builds. Please install from a release.")
+		return nil
+	}
+
+	// This copy of the CLI ships inside the desktop app, which updates it by
+	// replacing the whole bundle. Overwriting it here would break the app's
+	// code signature and be reverted on the app's next update. Say so plainly
+	// rather than failing obscurely or silently doing nothing.
+	if clipath.AppManaged() && !checkOnly {
+		out.printErr("This sx is the copy bundled in the sx desktop app.")
+		out.printErr("Update it by updating the app — the app replaces its bundled CLI.")
+		out.printErr("To manage a CLI yourself, install one separately (Homebrew or install.sh);")
+		out.printErr("a separately installed sx updates independently of the app.")
 		return nil
 	}
 

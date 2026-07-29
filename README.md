@@ -49,6 +49,8 @@ Two front doors, one library. The app and the CLI share a single configuration, 
 
 The app ships the matching CLI inside itself, because some of what it installs — session hooks, MCP server entries — is configuration your AI client executes later and needs a real binary to run. So installing only the app is a complete setup; you do not also need to install the CLI for hooks to work. Install the CLI separately when you want `sx` in your own terminal.
 
+The app keeps its bundled CLI current: an app update replaces it along with the rest of the app. That bundled copy does not self-update, since rewriting a file inside a signed app bundle would break it. A separately installed CLI updates itself as usual, independently of the app.
+
 ## Quickstart
 
 **Install via Homebrew (macOS/Linux):**
