@@ -271,9 +271,6 @@ func NeedsRepair(cmd string) bool {
 	if base := normalizedBase(cmd); base == "sx-app" || base == "sx-app.exe" {
 		return true
 	}
-	if verdict, owned := repairVerdict(cmd); owned && isExecutableFile(cmd) {
-		return verdict
-	}
 	return false
 }
 

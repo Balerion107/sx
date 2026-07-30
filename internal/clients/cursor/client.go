@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
@@ -716,7 +715,7 @@ func (c *Client) installBeforeSubmitPromptHook() error {
 					exactMatch = true
 					break
 				}
-				if strings.HasPrefix(cmd, "sx install") || strings.HasPrefix(cmd, "skills install") {
+				if clipath.Managed(cmd, "install") {
 					oldHookRef = hook // Remember for updating
 				}
 			}
