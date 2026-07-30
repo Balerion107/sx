@@ -357,9 +357,13 @@ func TestSessionStartDoesNotNarrowOwnEntryFromDuplicate(t *testing.T) {
 		map[string]any{"hooks": []any{
 			map[string]any{"type": "command", "command": "/previous/sx install --hook-mode --client=claude-code"},
 		}},
-		// A duplicate of ours living in the user's narrow entry.
+		// A duplicate of ours sharing the user's narrow entry with their own
+		// hook. It has to be shared: inheritance only reads a matcher off an
+		// entry sx is splitting, so without the user's hook here the entry is a
+		// plain duplicate and this test could not fail.
 		map[string]any{"matcher": "startup", "hooks": []any{
 			map[string]any{"type": "command", "command": "sx install --hook-mode --client=claude-code"},
+			map[string]any{"type": "command", "command": "my-linter"},
 		}},
 	})
 	if err := installSessionStartHook(dir); err != nil {

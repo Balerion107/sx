@@ -119,7 +119,7 @@ func installSessionStartHook(claudeDir string) error {
 
 	// SessionStart carries no matcher of sx's own, so an entry sx reuses keeps
 	// whatever matcher the user put on it.
-	converged, changed, replaced := convergeHookArray(sessionStart, hookCommand, "install", "")
+	converged, changed, existed, replaced := convergeHookArray(sessionStart, hookCommand, "install", "")
 	if !changed {
 		return nil
 	}
@@ -128,10 +128,14 @@ func installSessionStartHook(claudeDir string) error {
 	cwd, _ := os.Getwd()
 
 	hooks["SessionStart"] = converged
-	if replaced > 0 {
+	switch {
+	case replaced > 0:
 		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand,
 			"replaced", replaced, "cwd", cwd)
-	} else {
+	case existed > 0:
+		// The command was already current; something around it changed.
+		log.Info("hook repaired", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
+	default:
 		log.Info("hook installed", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
 	}
 
@@ -275,7 +279,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 //
 // The command object is carried over rather than rebuilt, so keys the user added
 // to it — "timeout" — survive.
-func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool, int) {
+func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) (result []any, changed bool, existed, replaced int) {
 	kept := make([]any, 0, len(entries)+1)
 
 	var ourEntry map[string]any   // an entry that held only our command
@@ -391,7 +395,7 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	if dropped := found - 1; dropped > 0 && replacedCount < dropped {
 		replacedCount = dropped
 	}
-	return kept, !unchanged, replacedCount
+	return kept, !unchanged, found, replacedCount
 }
 
 // removeSxHooks strips sx's commands from the given hook entries, in either the
@@ -481,14 +485,17 @@ func installUsageReportingHook(claudeDir string) error {
 
 	hookCommand := clipath.CommandOrBare("report-usage", "--client=claude-code")
 
-	converged, changed, replaced := convergeHookArray(postToolUse, hookCommand, "report-usage", postToolUseMatcher)
+	converged, changed, existed, replaced := convergeHookArray(postToolUse, hookCommand, "report-usage", postToolUseMatcher)
 	if !changed {
 		return nil
 	}
 	hooks["PostToolUse"] = converged
-	if replaced > 0 {
+	switch {
+	case replaced > 0:
 		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand, "replaced", replaced)
-	} else {
+	case existed > 0:
+		log.Info("hook repaired", "hook", "PostToolUse", "command", hookCommand)
+	default:
 		log.Info("hook installed", "hook", "PostToolUse", "command", hookCommand)
 	}
 
