@@ -120,36 +120,23 @@ func installSessionStartHook(claudeDir string) error {
 	// rest to run the install again on every session start. Byte-equality is
 	// checked alongside Managed so a false negative there cannot grow the list
 	// without bound.
+	// Update our command wherever it already sits, rather than removing entries
+	// and appending a fresh one. The entry can carry a user-set "matcher" that
+	// decides when the hook fires, and the command object itself can carry keys
+	// like "timeout" — dropping either silently changes behavior. Extra copies
+	// beyond the first are still collapsed.
 	kept := make([]any, 0, len(sessionStart))
 	managedFound := 0
 	upToDate := false
 	placed := false
 	for _, item := range sessionStart {
-		remainder, found, current := stripManagedCommands(item, hookCommand)
+		remainder, found, current := updateManagedCommands(item, hookCommand, &placed)
 		managedFound += found
 		if current {
 			upToDate = true
 		}
-		switch {
-		case found == 0 || remainder != nil:
-			// Untouched, or it also holds the user's own hooks and survives with
-			// just our command removed.
-			if remainder != nil {
-				kept = append(kept, remainder)
-			}
-		case !placed:
-			// This entry held only our command. Reuse it rather than dropping it
-			// and appending a fresh one, so a user-set "matcher" — which decides
-			// when the hook fires — is preserved instead of silently widened.
-			if hookMap, ok := item.(map[string]any); ok {
-				hookMap["hooks"] = []any{
-					map[string]any{"type": "command", "command": hookCommand},
-				}
-				kept = append(kept, hookMap)
-				placed = true
-			}
-		default:
-			// A further duplicate: drop it.
+		if remainder != nil {
+			kept = append(kept, remainder)
 		}
 	}
 
@@ -244,8 +231,8 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove SessionStart hook if requested
 			if uninstallSession {
 				if sessionStart, ok := hooks["SessionStart"].([]any); ok {
-					filtered := removeSxHooks(sessionStart, "install")
-					if len(filtered) != len(sessionStart) {
+					filtered, removed := removeSxHooks(sessionStart, "install")
+					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
 							delete(hooks, "SessionStart")
@@ -260,8 +247,8 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove PostToolUse hook if requested
 			if uninstallAnalytics {
 				if postToolUse, ok := hooks["PostToolUse"].([]any); ok {
-					filtered := removeSxHooks(postToolUse, "report-usage")
-					if len(filtered) != len(postToolUse) {
+					filtered, removed := removeSxHooks(postToolUse, "report-usage")
+					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
 							delete(hooks, "PostToolUse")
@@ -302,14 +289,18 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 	return nil
 }
 
-// stripManagedCommands removes sx's install command from one SessionStart entry.
+// updateManagedCommands rewrites sx's install command inside one SessionStart
+// entry, in place.
 //
 // It returns what should remain of the entry (nil when nothing does), how many
-// managed commands were removed, and whether one of them was already the current
-// command. Entries can mix sx's hook with the user's own, so operating on the
-// commands inside an entry — rather than accepting or rejecting whole entries —
-// is what lets a shared entry be upgraded instead of duplicated.
-func stripManagedCommands(item any, hookCommand string) (remainder any, found int, current bool) {
+// managed commands it saw, and whether one already carried the current command.
+// placed tracks whether the current command has been written somewhere yet, so
+// the first managed command found is updated and any further copies are dropped.
+//
+// Updating in place rather than removing and re-adding is what preserves a
+// user-set "matcher" on the entry and keys such as "timeout" on the command
+// object; only the "command" value itself is touched.
+func updateManagedCommands(item any, hookCommand string, placed *bool) (remainder any, found int, current bool) {
 	hookMap, ok := item.(map[string]any)
 	if !ok {
 		return item, 0, false
@@ -333,14 +324,22 @@ func stripManagedCommands(item any, hookCommand string) (remainder any, found in
 		}
 		// Byte-equality alongside Managed, so a false negative there cannot make
 		// the list grow without bound.
-		if cmd == hookCommand || clipath.Managed(cmd, "install") {
-			found++
-			if cmd == hookCommand {
-				current = true
-			}
+		if cmd != hookCommand && !clipath.Managed(cmd, "install") {
+			keptCommands = append(keptCommands, h)
 			continue
 		}
-		keptCommands = append(keptCommands, h)
+
+		found++
+		if cmd == hookCommand {
+			current = true
+		}
+		if *placed {
+			// A duplicate: drop it.
+			continue
+		}
+		hMap["command"] = hookCommand
+		keptCommands = append(keptCommands, hMap)
+		*placed = true
 	}
 
 	if found == 0 {
@@ -356,7 +355,7 @@ func stripManagedCommands(item any, hookCommand string) (remainder any, found in
 // removeSxHooks filters out hook entries that invoke sx with any of the given
 // subcommands, in either the legacy bare-"sx" form or the absolute-path form
 // current versions write.
-func removeSxHooks(hooks []any, subcommands ...string) []any {
+func removeSxHooks(hooks []any, subcommands ...string) (filteredOut []any, removed int) {
 	var filtered []any
 	for _, item := range hooks {
 		hookMap, ok := item.(map[string]any)
@@ -374,19 +373,20 @@ func removeSxHooks(hooks []any, subcommands ...string) []any {
 		// co-located user hook with it — install deliberately preserves those, so
 		// uninstall destroying them would be the worse half of an asymmetry.
 		keptCommands := make([]any, 0, len(hooksArray))
-		removed := false
+		strippedHere := 0
 		for _, h := range hooksArray {
 			if hMap, ok := h.(map[string]any); ok {
 				if cmd, ok := hMap["command"].(string); ok && clipath.Managed(cmd, subcommands...) {
-					removed = true
+					strippedHere++
 					continue
 				}
 			}
 			keptCommands = append(keptCommands, h)
 		}
+		removed += strippedHere
 
 		switch {
-		case !removed:
+		case strippedHere == 0:
 			filtered = append(filtered, item)
 		case len(keptCommands) > 0:
 			hookMap["hooks"] = keptCommands
@@ -394,7 +394,7 @@ func removeSxHooks(hooks []any, subcommands ...string) []any {
 		}
 		// Entry held only our commands: drop it.
 	}
-	return filtered
+	return filtered, removed
 }
 
 // installUsageReportingHook installs the PostToolUse hook for usage tracking
