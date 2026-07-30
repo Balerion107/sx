@@ -63,6 +63,17 @@ func commandsIn(entries []any) []string {
 	return out
 }
 
+// assertUpdated fails when the stale fixture command survived, which would mean
+// the install returned early and the surrounding assertion proved nothing.
+func assertUpdated(t *testing.T, entries []any) {
+	t.Helper()
+	for _, c := range commandsIn(entries) {
+		if c == "/previous/sx install --hook-mode --client=claude-code" {
+			t.Fatalf("stale command was not updated, so this case exercised nothing: %v", entries)
+		}
+	}
+}
+
 func countManaged(cmds []string) int {
 	n := 0
 	for _, c := range cmds {
@@ -113,10 +124,15 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 			entries: []any{
 				map[string]any{
 					"matcher": "startup",
-					"hooks":   []any{map[string]any{"type": "command", "command": "sx install --hook-mode --client=claude-code"}},
+					// A stale absolute path, deliberately: the bare form is what
+					// CommandOrBare produces when no CLI resolves, which would hit
+					// the already-current early return and leave this test
+					// asserting nothing on CI.
+					"hooks": []any{map[string]any{"type": "command", "command": "/previous/sx install --hook-mode --client=claude-code"}},
 				},
 			},
 			assert: func(t *testing.T, entries []any) {
+				assertUpdated(t, entries)
 				for _, e := range entries {
 					m, _ := e.(map[string]any)
 					if m["matcher"] == "startup" {
@@ -130,10 +146,12 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 			name: "user-set timeout on our own command must survive",
 			entries: []any{
 				map[string]any{"hooks": []any{
-					map[string]any{"type": "command", "command": "sx install --hook-mode --client=claude-code", "timeout": float64(90)},
+					// Stale absolute path for the same reason as the matcher case.
+					map[string]any{"type": "command", "command": "/previous/sx install --hook-mode --client=claude-code", "timeout": float64(90)},
 				}},
 			},
 			assert: func(t *testing.T, entries []any) {
+				assertUpdated(t, entries)
 				for _, e := range entries {
 					m, _ := e.(map[string]any)
 					arr, _ := m["hooks"].([]any)
@@ -182,7 +200,7 @@ func TestRemoveSxHooksStripsOnlyOurCommandAndReportsIt(t *testing.T) {
 			map[string]any{"type": "command", "command": "my-linter"},
 		}},
 	}
-	filtered, removed := removeSxHooks(entries, "install")
+	filtered, removed := removeSxHooks(entries, "sx install --hook-mode --client=claude-code", "install")
 	if removed != 1 {
 		t.Fatalf("removed = %d, want 1 — the caller writes the file only when this is > 0", removed)
 	}

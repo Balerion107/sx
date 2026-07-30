@@ -114,23 +114,20 @@ func installSessionStartHook(claudeDir string) error {
 
 	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code")
 
-	// Collapse to exactly one managed entry rather than rewriting a single "old"
-	// one. Several can accumulate — an absolute path goes stale when the app
-	// moves, and older versions wrote a bare "sx" — and rewriting one leaves the
-	// rest to run the install again on every session start. Byte-equality is
-	// checked alongside Managed so a false negative there cannot grow the list
-	// without bound.
-	// Update our command wherever it already sits, rather than removing entries
-	// and appending a fresh one. The entry can carry a user-set "matcher" that
-	// decides when the hook fires, and the command object itself can carry keys
-	// like "timeout" — dropping either silently changes behavior. Extra copies
-	// beyond the first are still collapsed.
+	// Update our command where it already sits, and collapse any extra copies to
+	// one. Copies accumulate because an absolute path goes stale when the app
+	// moves and older versions wrote a bare "sx"; leaving them behind runs the
+	// install again on every session start. Updating in place rather than
+	// removing and re-adding preserves a user-set "matcher", which decides when
+	// the hook fires, and keys such as "timeout" on the command object. Byte
+	// equality is checked alongside Managed so a false negative there cannot grow
+	// the list without bound.
 	kept := make([]any, 0, len(sessionStart))
 	managedFound := 0
 	upToDate := false
 	placed := false
 	for _, item := range sessionStart {
-		remainder, found, current := updateManagedCommands(item, hookCommand, &placed)
+		remainder, found, current := updateManagedCommands(item, hookCommand, "install", &placed)
 		managedFound += found
 		if current {
 			upToDate = true
@@ -231,7 +228,8 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove SessionStart hook if requested
 			if uninstallSession {
 				if sessionStart, ok := hooks["SessionStart"].([]any); ok {
-					filtered, removed := removeSxHooks(sessionStart, "install")
+					filtered, removed := removeSxHooks(sessionStart,
+						clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code"), "install")
 					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
@@ -247,7 +245,8 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove PostToolUse hook if requested
 			if uninstallAnalytics {
 				if postToolUse, ok := hooks["PostToolUse"].([]any); ok {
-					filtered, removed := removeSxHooks(postToolUse, "report-usage")
+					filtered, removed := removeSxHooks(postToolUse,
+						clipath.CommandOrBare("report-usage", "--client=claude-code"), "report-usage")
 					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
@@ -300,7 +299,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 // Updating in place rather than removing and re-adding is what preserves a
 // user-set "matcher" on the entry and keys such as "timeout" on the command
 // object; only the "command" value itself is touched.
-func updateManagedCommands(item any, hookCommand string, placed *bool) (remainder any, found int, current bool) {
+func updateManagedCommands(item any, hookCommand, subcommand string, placed *bool) (remainder any, found int, current bool) {
 	hookMap, ok := item.(map[string]any)
 	if !ok {
 		return item, 0, false
@@ -324,7 +323,7 @@ func updateManagedCommands(item any, hookCommand string, placed *bool) (remainde
 		}
 		// Byte-equality alongside Managed, so a false negative there cannot make
 		// the list grow without bound.
-		if cmd != hookCommand && !clipath.Managed(cmd, "install") {
+		if cmd != hookCommand && !clipath.Managed(cmd, subcommand) {
 			keptCommands = append(keptCommands, h)
 			continue
 		}
@@ -355,7 +354,11 @@ func updateManagedCommands(item any, hookCommand string, placed *bool) (remainde
 // removeSxHooks filters out hook entries that invoke sx with any of the given
 // subcommands, in either the legacy bare-"sx" form or the absolute-path form
 // current versions write.
-func removeSxHooks(hooks []any, subcommands ...string) (filteredOut []any, removed int) {
+// removeSxHooks strips sx's commands from the given hook entries. currentCommand
+// is matched byte-for-byte alongside the subcommand predicate, the same pairing
+// install uses: if Managed ever has a false negative for a command sx wrote,
+// uninstall would otherwise leave that hook behind.
+func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) (filteredOut []any, removed int) {
 	var filtered []any
 	for _, item := range hooks {
 		hookMap, ok := item.(map[string]any)
@@ -376,7 +379,7 @@ func removeSxHooks(hooks []any, subcommands ...string) (filteredOut []any, remov
 		strippedHere := 0
 		for _, h := range hooksArray {
 			if hMap, ok := h.(map[string]any); ok {
-				if cmd, ok := hMap["command"].(string); ok && clipath.Managed(cmd, subcommands...) {
+				if cmd, ok := hMap["command"].(string); ok && (cmd == currentCommand || clipath.Managed(cmd, subcommands...)) {
 					strippedHere++
 					continue
 				}
@@ -428,43 +431,30 @@ func installUsageReportingHook(claudeDir string) error {
 
 	hookCommand := clipath.CommandOrBare("report-usage", "--client=claude-code")
 
-	// Check if our hook already exists (check for both old and new command formats)
-	hookExists := false
-	var oldHookRef map[string]any
+	// Same in-place update and collapse as SessionStart: rewriting one "old"
+	// entry left any duplicates to report usage repeatedly, and replacing whole
+	// entries dropped a user-set matcher or timeout.
+	kept := make([]any, 0, len(postToolUse))
+	managedFound := 0
+	upToDate := false
+	placed := false
 	for _, item := range postToolUse {
-		if hookMap, ok := item.(map[string]any); ok {
-			if hooksArray, ok := hookMap["hooks"].([]any); ok {
-				for _, h := range hooksArray {
-					if hMap, ok := h.(map[string]any); ok {
-						if cmd, ok := hMap["command"].(string); ok {
-							if cmd == hookCommand {
-								hookExists = true
-								break
-							}
-							if clipath.Managed(cmd, "report-usage") {
-								oldHookRef = hMap // Remember for updating
-							}
-						}
-					}
-				}
-			}
+		remainder, found, current := updateManagedCommands(item, hookCommand, "report-usage", &placed)
+		managedFound += found
+		if current {
+			upToDate = true
 		}
-		if hookExists {
-			break
+		if remainder != nil {
+			kept = append(kept, remainder)
 		}
 	}
 
-	// Already have exact match, nothing to do
-	if hookExists {
+	if upToDate && managedFound == 1 {
 		return nil
 	}
 
-	// Update old hook if found, otherwise add new
-	if oldHookRef != nil {
-		oldHookRef["command"] = hookCommand
-		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand)
-	} else {
-		newHook := map[string]any{
+	if !placed {
+		kept = append(kept, map[string]any{
 			"matcher": "Skill|Task|SlashCommand|mcp__.*",
 			"hooks": []any{
 				map[string]any{
@@ -472,9 +462,13 @@ func installUsageReportingHook(claudeDir string) error {
 					"command": hookCommand,
 				},
 			},
-		}
-		postToolUse = append(postToolUse, newHook)
-		hooks["PostToolUse"] = postToolUse
+		})
+	}
+	postToolUse = kept
+	hooks["PostToolUse"] = postToolUse
+	if managedFound > 0 {
+		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand, "replaced", managedFound)
+	} else {
 		log.Info("hook installed", "hook", "PostToolUse", "command", hookCommand)
 	}
 
