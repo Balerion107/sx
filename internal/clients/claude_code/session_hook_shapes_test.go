@@ -384,3 +384,35 @@ func TestSessionStartDoesNotNarrowOwnEntryFromDuplicate(t *testing.T) {
 	}
 	t.Fatalf("sx's command vanished: %v", entries)
 }
+
+// The command object carried forward must be the one from the entry sx ends up
+// owning, not merely the first managed command seen: a duplicate in an earlier
+// entry would otherwise win and the user's timeout on sx's own entry would be
+// lost, contradicting the documented guarantee.
+func TestTimeoutSurvivesADuplicateInAnEarlierEntry(t *testing.T) {
+	dir := settingsWithHook(t, "SessionStart", []any{
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": "/duplicate/sx install --hook-mode --client=claude-code"},
+		}},
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": "/own/sx install --hook-mode --client=claude-code", "timeout": float64(90)},
+		}},
+	})
+	if err := installSessionStartHook(dir); err != nil {
+		t.Fatalf("installSessionStartHook: %v", err)
+	}
+	entries := readHookArray(t, dir, "SessionStart")
+	if n := countManaged(commandsIn(entries)); n != 1 {
+		t.Fatalf("want one managed command, got %d in %v", n, entries)
+	}
+	for _, e := range entries {
+		m, _ := e.(map[string]any)
+		arr, _ := m["hooks"].([]any)
+		for _, h := range arr {
+			if hm, ok := h.(map[string]any); ok && hm["timeout"] == float64(90) {
+				return
+			}
+		}
+	}
+	t.Fatalf("timeout lost to the earlier duplicate: %v", entries)
+}

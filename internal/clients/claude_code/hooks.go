@@ -275,72 +275,48 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 // ownMatcher is the matcher sx owns for this hook, empty when it owns none. For
 // PostToolUse it decides which tool events get reported, which is sx's concern,
 // so it is re-asserted even when the command itself is already current. For
-// SessionStart sx writes no matcher, so an entry it reuses keeps the user's.
+// SessionStart sx writes no matcher, so an entry it reuses keeps the user's, and
+// an entry split out of a shared one inherits that entry's matcher.
 //
-// The command object is carried over rather than rebuilt, so keys the user added
-// to it — "timeout" — survive.
-func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) (result []any, changed bool, existed, replaced int) {
+// Keys the user added to sx's command object — "timeout" — survive: the object
+// is carried over rather than rebuilt, and when several copies exist their extra
+// keys are merged, since there is no way to tell which copy the user edited.
+//
+// Returns the converged array, whether anything changed, how many of sx's
+// commands were already present, and how many were replaced.
+func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool, int, int) {
 	kept := make([]any, 0, len(entries)+1)
 
-	var ourEntry map[string]any   // an entry that held only our command
-	var ourCommand map[string]any // the command object to carry forward
-	found := 0
-	replacedCount := 0
-	alreadyCurrent := false
-	shared := false
+	var ourEntry map[string]any // an entry that held only our command
+	var ours []map[string]any   // every copy of our command found
 	inheritedMatcher := ""
-
-	isOurs := func(obj map[string]any) bool {
-		cmd, ok := obj["command"].(string)
-		if !ok {
-			return false
-		}
-		// Byte equality alongside the predicate: a Managed false negative for a
-		// command sx wrote would otherwise grow the array without bound.
-		return cmd == hookCommand || clipath.Managed(cmd, subcommand)
-	}
+	alreadyCurrent := false
+	replaced := 0
+	shared := false
 
 	for _, item := range entries {
-		entry, ok := item.(map[string]any)
-		if !ok {
+		entry, theirs, mine := splitEntry(item, hookCommand, subcommand)
+		if entry == nil {
+			// Not an entry shape we understand; leave it alone.
 			kept = append(kept, item)
 			continue
 		}
-		hooksArray, ok := entry["hooks"].([]any)
-		if !ok {
-			kept = append(kept, item)
-			continue
-		}
-
-		theirs := make([]any, 0, len(hooksArray))
-		for _, h := range hooksArray {
-			obj, ok := h.(map[string]any)
-			if !ok || !isOurs(obj) {
-				theirs = append(theirs, h)
-				continue
-			}
-			found++
+		ours = append(ours, mine...)
+		for _, obj := range mine {
 			if cmd, _ := obj["command"].(string); cmd == hookCommand {
 				alreadyCurrent = true
 			} else {
-				// Only a command whose text actually differs counts as replaced.
-				replacedCount++
-			}
-			if ourCommand == nil {
-				ourCommand = obj
+				replaced++
 			}
 		}
 
 		switch {
-		case len(theirs) == len(hooksArray):
-			// Nothing of ours here.
+		case len(mine) == 0:
 			kept = append(kept, item)
 		case len(theirs) > 0:
 			// Shared: leave their hooks and their matcher exactly as they are, and
-			// remember the matcher so the entry sx splits out inherits it. Without
-			// that, a matcher the user put on the shared entry would stop applying
-			// to sx's command and the hook would fire on more sources than they
-			// configured.
+			// remember the matcher so the entry sx splits out inherits it —
+			// otherwise sx's command would stop honoring the scope they set.
 			if m, ok := entry["matcher"].(string); ok && inheritedMatcher == "" {
 				inheritedMatcher = m
 			}
@@ -355,19 +331,14 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 		}
 	}
 
-	if ourCommand == nil {
-		ourCommand = map[string]any{}
-	}
+	ourCommand := mergeCommandObjects(ours)
 	ourCommand["command"] = hookCommand
-	// The object may have been inherited from a hand-written entry with no
-	// "type"; sx owns this entry outright now, so it should be well-formed.
+	// The object can be inherited from a hand-written entry with no "type"; the
+	// entry sx owns outright should be well-formed.
 	if t, _ := ourCommand["type"].(string); t == "" {
 		ourCommand["type"] = "command"
 	}
 
-	// Whether we had an entry of our own decides both the matcher rule below and
-	// the change detection: inheriting into an entry sx already owned would
-	// narrow its matcher, the mirror of the widening this inheritance prevents.
 	createdEntry := ourEntry == nil
 	if createdEntry {
 		ourEntry = map[string]any{}
@@ -376,26 +347,75 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	ourEntry["hooks"] = []any{ourCommand}
 	switch {
 	case ownMatcher != "":
-		// sx owns the matcher for this hook.
 		ourEntry["matcher"] = ownMatcher
 	case createdEntry && inheritedMatcher != "":
-		// Split out of a shared entry: keep the user's matcher on our copy.
 		ourEntry["matcher"] = inheritedMatcher
 	}
 	kept = append(kept, ourEntry)
 
+	// Duplicates that were dropped are replacements too, whatever text they
+	// carried; a matcher-only correction replaces nothing and reports zero.
+	if dropped := len(ours) - 1; dropped > replaced {
+		replaced = dropped
+	}
+
 	// Unchanged only when there was exactly one command, it was already current,
 	// it was not sharing an entry, and any matcher sx owns already matched.
-	unchanged := found == 1 && alreadyCurrent && !shared
+	unchanged := len(ours) == 1 && alreadyCurrent && !shared
 	if unchanged && ownMatcher != "" && priorMatcher != ownMatcher {
 		unchanged = false
 	}
-	// Duplicates that were dropped are replacements too, whatever text they
-	// carried; a matcher-only correction replaces nothing and reports zero.
-	if dropped := found - 1; dropped > 0 && replacedCount < dropped {
-		replacedCount = dropped
+	return kept, !unchanged, len(ours), replaced
+}
+
+// splitEntry separates one hook entry's commands into the user's and sx's.
+// It returns a nil entry when the item is not a shape this code understands.
+func splitEntry(item any, hookCommand, subcommand string) (entry map[string]any, theirs []any, mine []map[string]any) {
+	entry, ok := item.(map[string]any)
+	if !ok {
+		return nil, nil, nil
 	}
-	return kept, !unchanged, found, replacedCount
+	hooksArray, ok := entry["hooks"].([]any)
+	if !ok {
+		return nil, nil, nil
+	}
+
+	theirs = make([]any, 0, len(hooksArray))
+	for _, h := range hooksArray {
+		obj, ok := h.(map[string]any)
+		if !ok {
+			theirs = append(theirs, h)
+			continue
+		}
+		cmd, ok := obj["command"].(string)
+		// Byte equality alongside the predicate: a Managed false negative for a
+		// command sx wrote would otherwise grow the array without bound.
+		if !ok || (cmd != hookCommand && !clipath.Managed(cmd, subcommand)) {
+			theirs = append(theirs, h)
+			continue
+		}
+		mine = append(mine, obj)
+	}
+	return entry, theirs, mine
+}
+
+// mergeCommandObjects folds every copy of sx's command object into one, keeping
+// the first value seen for each key. Copies are indistinguishable as to which
+// the user edited, so a "timeout" set on any of them is honored rather than
+// silently dropped because it sat on the copy that lost.
+func mergeCommandObjects(objs []map[string]any) map[string]any {
+	merged := map[string]any{}
+	for _, obj := range objs {
+		for k, v := range obj {
+			if k == "command" {
+				continue
+			}
+			if _, exists := merged[k]; !exists {
+				merged[k] = v
+			}
+		}
+	}
+	return merged
 }
 
 // removeSxHooks strips sx's commands from the given hook entries, in either the
