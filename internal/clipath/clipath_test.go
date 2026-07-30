@@ -343,3 +343,30 @@ func TestNeedsRepair(t *testing.T) {
 		})
 	}
 }
+
+// A hand-written command whose last path segment merely looks like ours must
+// never be classified as repairable: Cursor and Kiro overwrite on a true
+// verdict, which would destroy the user's own MCP server entry.
+func TestNeedsRepairLeavesLookalikeUserCommandsAlone(t *testing.T) {
+	stubGOOS(t, "darwin")
+	for _, cmd := range []string{
+		"docker run ghcr.io/acme/skills",
+		"uv run --directory /opt/tools/sx",
+		"/usr/bin/python3 -m servers/sx",
+		"node /srv/tools/sx.exe",
+		"npx -y @acme/mcp-server",
+	} {
+		if NeedsRepair(cmd) {
+			t.Fatalf("NeedsRepair(%q) = true; a hand-written entry must be preserved", cmd)
+		}
+	}
+}
+
+// The whole-value branch still has to catch an unquoted Windows GUI path with a
+// space, which naive splitting reads as argv[0] "C:\Program".
+func TestNeedsRepairUnquotedWindowsGUIPath(t *testing.T) {
+	stubGOOS(t, "windows")
+	if !NeedsRepair(`C:\Program Files\sx\sx-app.exe`) {
+		t.Fatal("GUI binary at a spaced Windows path must be repaired")
+	}
+}

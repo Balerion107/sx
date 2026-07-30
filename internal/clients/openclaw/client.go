@@ -2,6 +2,7 @@ package openclaw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/openclaw/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
@@ -302,12 +304,15 @@ skills are up to date.
 		return fmt.Errorf("failed to write HOOK.md: %w", err)
 	}
 
-	// Write index.ts handler
-	indexTS := `import { execSync } from "child_process";
+	// Write index.ts handler. The command becomes a TypeScript string literal, so
+	// it needs JSON escaping — shellQuote is the wrong quoter for source code, and
+	// an unescaped Windows path would turn its separators into TS escapes.
+	installCmd, _ := json.Marshal(clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw"))
+	indexTS := fmt.Sprintf(`import { execSync } from "child_process";
 
 export default async function handler() {
   try {
-    execSync("sx install --hook-mode --client=openclaw", {
+    execSync(%s, {
       stdio: "inherit",
       timeout: 30000,
     });
@@ -316,7 +321,7 @@ export default async function handler() {
     console.error("[sx] install hook failed:", error);
   }
 }
-`
+`, installCmd)
 	indexTSPath := filepath.Join(hookDir, "index.ts")
 	if err := os.WriteFile(indexTSPath, []byte(indexTS), 0644); err != nil {
 		return fmt.Errorf("failed to write index.ts: %w", err)
@@ -338,7 +343,7 @@ func (c *Client) installCronJob() error {
 
 	cmd := exec.Command("openclaw", "cron", "add", "sx-install",
 		"--schedule", "*/30 * * * *",
-		"--command", "sx install --hook-mode --client=openclaw --scope global --quiet",
+		"--command", clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw", "--scope", "global", "--quiet"),
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Debug("failed to register cron job", "error", err, "output", string(output))

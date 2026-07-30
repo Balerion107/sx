@@ -663,7 +663,7 @@ func (c *Client) uninstallBeforeSubmitPromptHook() error {
 			filtered = append(filtered, hook)
 			continue
 		}
-		if !strings.HasPrefix(cmd, "sx install") && !strings.HasPrefix(cmd, "skills install") {
+		if !clipath.Managed(cmd, "install") {
 			filtered = append(filtered, hook)
 		}
 	}
@@ -704,7 +704,7 @@ func (c *Client) installBeforeSubmitPromptHook() error {
 		return fmt.Errorf("failed to read hooks.json: %w", err)
 	}
 
-	hookCommand := "sx install --hook-mode --client=cursor"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=cursor")
 
 	// First, check if exact hook command already exists
 	exactMatch := false
@@ -768,7 +768,7 @@ func (c *Client) installPostToolUseHook() error {
 		return fmt.Errorf("failed to read hooks.json: %w", err)
 	}
 
-	hookCommand := "sx report-usage --client=cursor"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=cursor")
 
 	// Check if exact hook command already exists
 	if hooks, ok := config.Hooks["postToolUse"]; ok {
@@ -789,7 +789,7 @@ func (c *Client) installPostToolUseHook() error {
 				filtered = append(filtered, hook)
 				continue
 			}
-			if !strings.HasPrefix(cmd, "sx report-usage") && !strings.HasPrefix(cmd, "skills report-usage") {
+			if !clipath.Managed(cmd, "report-usage") {
 				filtered = append(filtered, hook)
 			}
 		}
@@ -844,7 +844,7 @@ func (c *Client) uninstallPostToolUseHook() error {
 			filtered = append(filtered, hook)
 			continue
 		}
-		if !strings.HasPrefix(cmd, "sx report-usage") && !strings.HasPrefix(cmd, "skills report-usage") {
+		if !clipath.Managed(cmd, "report-usage") {
 			filtered = append(filtered, hook)
 		}
 	}

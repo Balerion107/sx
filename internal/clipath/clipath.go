@@ -250,19 +250,31 @@ func NeedsRepair(cmd string) bool {
 	if cmd == "" {
 		return false
 	}
-	// Try the whole value before splitting. An MCP "command" is a bare
-	// executable path rather than a shell string, so a Windows path with a space
-	// ("C:\\Program Files\\sx\\sx-app.exe") would otherwise be read as an argv[0]
-	// of "C:\\Program" and classified as somebody else's binary.
-	if verdict, owned := repairVerdict(cmd); owned {
+	// argv[0] first. Consulting the whole string first was wrong in a way that
+	// destroys user config: normalizedBase is the last path segment, so any
+	// multi-token command ending in an sx-like segment ("docker run
+	// ghcr.io/acme/skills", "uv run --directory /opt/tools/sx") looked owned, and
+	// since the whole string is not a file the verdict came back "repair" — so
+	// Cursor and Kiro would overwrite a hand-written server with their own entry.
+	fields := splitCommand(cmd)
+	if len(fields) > 0 {
+		if verdict, owned := repairVerdict(fields[0]); owned {
+			return verdict
+		}
+	}
+
+	// Only then the whole value, and only when it is unambiguously ours: an MCP
+	// "command" is a bare executable path, so an unquoted Windows path with a
+	// space ("C:\\Program Files\\sx\\sx-app.exe") splits into a meaningless
+	// argv[0]. Requiring either the GUI binary name or a file that actually
+	// exists keeps this branch from reaching the destructive verdict by accident.
+	if base := normalizedBase(cmd); base == "sx-app" || base == "sx-app.exe" {
+		return true
+	}
+	if verdict, owned := repairVerdict(cmd); owned && isExecutableFile(cmd) {
 		return verdict
 	}
-	fields := splitCommand(cmd)
-	if len(fields) == 0 {
-		return false
-	}
-	verdict, _ := repairVerdict(fields[0])
-	return verdict
+	return false
 }
 
 // repairVerdict classifies a single argv[0]. owned is false when the binary is

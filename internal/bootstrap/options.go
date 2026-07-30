@@ -1,6 +1,6 @@
 package bootstrap
 
-import "os"
+import "github.com/sleuth-io/sx/v2/internal/clipath"
 
 // Option describes a configurable bootstrap item
 type Option struct {
@@ -53,7 +53,14 @@ var AnalyticsHook = Option{
 // SleuthAIQueryMCP returns the Sleuth AI query MCP server option
 // Future: may split into multiple options to enable specific tools
 func SleuthAIQueryMCP() Option {
-	sxPath, _ := os.Executable()
+	// The client execs this later, so it needs the CLI — not whichever binary is
+	// running now. os.Executable() here was the Wails GUI binary when the desktop
+	// app wrote the entry, and that binary has no subcommands, so the client would
+	// launch a window and wait forever for stdio MCP traffic. It also discarded
+	// its error, which yielded an empty Command.
+	//
+	// This is the widest-reach instance: the value flows into every client that
+	// handles opt.MCPConfig.
 	return Option{
 		Key:         SleuthAIQueryMCPKey,
 		Description: "Sleuth AI Query MCP - Enables 'sx query' tool for GitHub, CI, Linear, Datadog",
@@ -61,7 +68,7 @@ func SleuthAIQueryMCP() Option {
 		Default:     false,
 		MCPConfig: &MCPServerConfig{
 			Name:    "sx",
-			Command: sxPath,
+			Command: clipath.ResolveOrBare(),
 			Args:    []string{"serve"},
 		},
 	}
