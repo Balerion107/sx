@@ -382,6 +382,12 @@ func ResolveOrBare() string {
 // the separators is meaningless there. Only a genuine space forces quoting, and
 // nothing inside is escaped — cmd.exe and PowerShell both treat a
 // double-quoted run as literal.
+// shellEscaped is exactly the set shellQuote escapes on POSIX, and exactly what
+// splitCommand unescapes. Keeping it in one place is the point: they drifted
+// once, leaving `\$` and a backslash-backtick pair to survive a round trip as
+// literal backslashes.
+const shellEscaped = `\\"$` + "`"
+
 func shellQuote(s string) string {
 	if goos == "windows" {
 		if !strings.ContainsAny(s, " \t") {
@@ -495,16 +501,16 @@ func splitCommand(cmd string) []string {
 		return nil
 	}
 	if cmd[0] == '"' {
-		// A backslash is an escape only when it precedes one of the two characters
-		// shellQuote ever escapes. In a Windows path it precedes a path segment,
-		// so it stays literal — which is why this is decided per character rather
-		// than by the host OS: these configs get synced between machines, and
-		// keying on runtime.GOOS mangled a Windows path read on POSIX and left a
-		// POSIX escape intact when read on Windows.
+		// A backslash is an escape only when it precedes one of the characters
+		// shellQuote escapes — the same set, kept in sync via shellEscaped. In a
+		// Windows path it precedes a path segment, so it stays literal, which is
+		// why this is decided per character rather than by the host OS: these
+		// configs get synced between machines, and keying on runtime.GOOS mangled
+		// a Windows path read on POSIX and left a POSIX escape intact on Windows.
 		var head strings.Builder
 		for i := 1; i < len(cmd); i++ {
 			c := cmd[i]
-			if c == '\\' && i+1 < len(cmd) && (cmd[i+1] == '"' || cmd[i+1] == '\\') {
+			if c == '\\' && i+1 < len(cmd) && strings.IndexByte(shellEscaped, cmd[i+1]) >= 0 {
 				head.WriteByte(cmd[i+1])
 				i++
 				continue

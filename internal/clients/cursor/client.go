@@ -956,7 +956,24 @@ func mcpEntryNeedsRepair(entry any) bool {
 	if !ok {
 		return false
 	}
-	// ShouldRewrite, not NeedsRepair: it also upgrades a bare "sx" written by a
-	// degraded install once a real CLI is resolvable.
-	return clipath.ShouldRewrite(cmd)
+	// A broken entry is replaced whatever its args: it cannot work as it stands.
+	if clipath.NeedsRepair(cmd) {
+		return true
+	}
+	// The bare-"sx" upgrade is different — that entry works, we are only
+	// improving its path — so it must leave a hand-written one alone. Only
+	// rewrite when the args are the ones sx itself writes.
+	return clipath.ShouldRewrite(cmd) && argsAreOurs(m["args"])
+}
+
+// argsAreOurs reports whether an MCP entry's args are exactly what sx writes.
+// A bare "sx" with different args is somebody else's invocation of the same
+// binary, and replacing those args would silently change what it does.
+func argsAreOurs(raw any) bool {
+	args, ok := raw.([]any)
+	if !ok || len(args) != 1 {
+		return false
+	}
+	s, ok := args[0].(string)
+	return ok && s == "serve"
 }

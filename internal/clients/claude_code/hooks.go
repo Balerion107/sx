@@ -124,11 +124,16 @@ func installSessionStartHook(claudeDir string) error {
 	managedFound := 0
 	upToDate := false
 	for _, item := range sessionStart {
-		if isManagedSessionStartEntry(item, hookCommand, &upToDate) {
-			managedFound++
-			continue
+		remainder, found, current := stripManagedCommands(item, hookCommand)
+		managedFound += found
+		if current {
+			upToDate = true
 		}
-		kept = append(kept, item)
+		// An entry that also holds the user's own hooks survives with just our
+		// command removed; one that held only ours is dropped entirely.
+		if remainder != nil {
+			kept = append(kept, remainder)
+		}
 	}
 
 	// Nothing to do only when there was exactly one and it is already current.
@@ -277,32 +282,55 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 	return nil
 }
 
-// isManagedSessionStartEntry reports whether a SessionStart entry is an
-// sx-written install hook, setting upToDate when it already carries the current
-// command. An entry that also holds someone else's hook is left alone: the
-// managed command is only ever written in an entry of its own.
-func isManagedSessionStartEntry(item any, hookCommand string, upToDate *bool) bool {
+// stripManagedCommands removes sx's install command from one SessionStart entry.
+//
+// It returns what should remain of the entry (nil when nothing does), how many
+// managed commands were removed, and whether one of them was already the current
+// command. Entries can mix sx's hook with the user's own, so operating on the
+// commands inside an entry — rather than accepting or rejecting whole entries —
+// is what lets a shared entry be upgraded instead of duplicated.
+func stripManagedCommands(item any, hookCommand string) (remainder any, found int, current bool) {
 	hookMap, ok := item.(map[string]any)
 	if !ok {
-		return false
+		return item, 0, false
 	}
 	hooksArray, ok := hookMap["hooks"].([]any)
-	if !ok || len(hooksArray) != 1 {
-		return false
-	}
-	hMap, ok := hooksArray[0].(map[string]any)
 	if !ok {
-		return false
+		return item, 0, false
 	}
-	cmd, ok := hMap["command"].(string)
-	if !ok {
-		return false
+
+	keptCommands := make([]any, 0, len(hooksArray))
+	for _, h := range hooksArray {
+		hMap, ok := h.(map[string]any)
+		if !ok {
+			keptCommands = append(keptCommands, h)
+			continue
+		}
+		cmd, ok := hMap["command"].(string)
+		if !ok {
+			keptCommands = append(keptCommands, h)
+			continue
+		}
+		// Byte-equality alongside Managed, so a false negative there cannot make
+		// the list grow without bound.
+		if cmd == hookCommand || clipath.Managed(cmd, "install") {
+			found++
+			if cmd == hookCommand {
+				current = true
+			}
+			continue
+		}
+		keptCommands = append(keptCommands, h)
 	}
-	if cmd == hookCommand {
-		*upToDate = true
-		return true
+
+	if found == 0 {
+		return item, 0, false
 	}
-	return clipath.Managed(cmd, "install")
+	if len(keptCommands) == 0 {
+		return nil, found, current
+	}
+	hookMap["hooks"] = keptCommands
+	return hookMap, found, current
 }
 
 // removeSxHooks filters out hook entries that invoke sx with any of the given

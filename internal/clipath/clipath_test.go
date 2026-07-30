@@ -547,3 +547,23 @@ func TestShouldRewriteUpgradesDegradedBareEntry(t *testing.T) {
 		t.Fatalf("current path %q should not be rewritten", cli)
 	}
 }
+
+// Every character shellQuote escapes must survive a round trip through
+// splitCommand; the two sets drifted once and left literal backslashes behind.
+func TestShellQuoteSplitCommandRoundTripAllEscapes(t *testing.T) {
+	stubGOOS(t, "darwin")
+	for _, weird := range []string{
+		`/opt/a b/sx`,
+		`/opt/quote"dir/sx`,
+		`/opt/back\slash/sx`,
+		`/opt/dollar$var/sx`,
+		"/opt/tick`cmd`/sx",
+		"/opt/all $of \"them\"`and`\\more/sx",
+	} {
+		quoted := shellQuote(weird)
+		got := splitCommand(quoted + " install --hook-mode")
+		if len(got) == 0 || got[0] != weird {
+			t.Errorf("round trip lost argv[0]\n  input:  %q\n  quoted: %q\n  got:    %q", weird, quoted, got)
+		}
+	}
+}

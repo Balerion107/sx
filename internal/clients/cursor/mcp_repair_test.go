@@ -49,3 +49,20 @@ func TestMCPEntryNeedsRepair(t *testing.T) {
 		})
 	}
 }
+
+// A bare "sx" with the user's own args is their invocation of the same binary;
+// upgrading its path must not rewrite what it does.
+func TestMCPEntryLeavesHandWrittenArgsAlone(t *testing.T) {
+	entry := map[string]any{"command": "sx", "args": []any{"cloud", "serve"}}
+	if mcpEntryNeedsRepair(entry) {
+		t.Fatal("a bare sx with non-default args must be left alone")
+	}
+	// A broken command is replaced regardless of args — it cannot work as-is.
+	broken := map[string]any{
+		"command": "/Applications/sx.app/Contents/MacOS/sx-app",
+		"args":    []any{"cloud", "serve"},
+	}
+	if !mcpEntryNeedsRepair(broken) {
+		t.Fatal("the GUI binary is unusable whatever its args")
+	}
+}

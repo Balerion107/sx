@@ -349,16 +349,12 @@ func (c *Client) installCronJob(openclawDir string) error {
 		).CombinedOutput()
 	}
 
-	// Skip entirely when the job we registered already carries this command.
-	// `openclaw cron` has no update verb, so the only way to change a job is
-	// remove-then-add — and doing that on every install would destroy and
-	// recreate a working job for no reason. The marker sits beside the hook this
-	// client already writes.
+	// The marker records what was last registered. It is consulted only after an
+	// add has been refused — never before — because it describes intent, not
+	// state: a job removed out of band still matches the marker, and skipping on
+	// that basis would leave no job at all. Attempting the add first makes the
+	// missing-job case self-healing.
 	markerPath := filepath.Join(openclawDir, handlers.DirHooks, "sx-install", ".cron-command")
-	if prev, err := os.ReadFile(markerPath); err == nil && strings.TrimSpace(string(prev)) == command {
-		log.Debug("cron job already current", "name", "sx-install")
-		return nil
-	}
 	recordMarker := func() {
 		if err := os.WriteFile(markerPath, []byte(command+"\n"), 0644); err != nil {
 			log.Debug("failed to record cron command marker", "error", err)
@@ -373,6 +369,15 @@ func (c *Client) installCronJob(openclawDir string) error {
 	if err == nil {
 		log.Info("cron job registered", "name", "sx-install", "schedule", "*/30 * * * *")
 		recordMarker()
+		return nil
+	}
+
+	// The add was refused, so a job exists. Leave it alone when it already
+	// carries this command: `openclaw cron` has no update verb, so changing one
+	// means remove-then-add, and doing that on every install would destroy and
+	// recreate a working job for no reason.
+	if prev, readErr := os.ReadFile(markerPath); readErr == nil && strings.TrimSpace(string(prev)) == command {
+		log.Debug("cron job already current", "name", "sx-install")
 		return nil
 	}
 
