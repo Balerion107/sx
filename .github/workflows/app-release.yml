@@ -172,7 +172,11 @@ jobs:
           LDFLAGS="-s -w"
           LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}"
           LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=${GITHUB_SHA}"
-          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # The commit's own date, not `date -u`: the six matrix jobs run at
+          # different times, and a wall-clock stamp makes six builds of the same
+          # commit report six different dates.
+          BUILD_DATE="$(git show -s --format=%cI "${GITHUB_SHA}" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=${BUILD_DATE}"
 
           CGO_ENABLED=0 GOOS="$GOOS_ARG" GOARCH="$GOARCH_ARG" go build \
             -ldflags "$LDFLAGS" \

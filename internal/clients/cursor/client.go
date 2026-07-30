@@ -716,7 +716,11 @@ func (c *Client) installBeforeSubmitPromptHook() error {
 	upToDate := false
 	for _, hook := range existing {
 		cmd, ok := hook["command"].(string)
-		if ok && clipath.Managed(cmd, "install") {
+		// Byte-equality is checked independently of Managed. If Managed ever has
+		// a false negative for a command we wrote, matching on the exact string
+		// still collapses it — otherwise every install would append another copy
+		// of a hook it failed to recognize, without bound.
+		if ok && (cmd == hookCommand || clipath.Managed(cmd, "install")) {
 			managedFound++
 			if cmd == hookCommand {
 				upToDate = true

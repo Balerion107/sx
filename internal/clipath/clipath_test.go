@@ -448,3 +448,67 @@ func TestManagedArgv(t *testing.T) {
 		})
 	}
 }
+
+// The round trip that matters most on Windows: a spaced CLI path is quoted by
+// Command, and Managed has to read it back. Treating "\" as an escape here ate
+// every path separator, so sx stopped recognizing its own hooks and the install
+// loop appended a new one on every run.
+func TestWindowsQuotedPathRoundTrip(t *testing.T) {
+	stubGOOS(t, "windows")
+	const p = `C:\Program Files\sx\sx.exe`
+
+	quoted := shellQuote(p)
+	if quoted != `"`+p+`"` {
+		t.Fatalf("shellQuote = %q", quoted)
+	}
+	got := splitCommand(quoted + " install --hook-mode --client=cline")
+	if len(got) == 0 || got[0] != p {
+		t.Fatalf("argv[0] = %q, want %q", got, p)
+	}
+	if !Managed(quoted+" install --hook-mode --client=cline", "install") {
+		t.Fatal("sx must recognize its own quoted Windows hook")
+	}
+	if !ManagedArgv([]string{p, "report-usage"}, "report-usage") {
+		t.Fatal("argv form must recognize a spaced Windows path")
+	}
+}
+
+// The GUI-binary branch inspects the whole command string, so it has to reject a
+// multi-token command that merely ends in that name — overwriting a user's own
+// MCP server is the destructive outcome.
+func TestNeedsRepairWholeValueRequiresAbsolutePath(t *testing.T) {
+	stubGOOS(t, "darwin")
+	for _, cmd := range []string{
+		"docker run acme/sx-app",
+		"npx -y some/sx-app",
+		"./sx-app",
+	} {
+		if NeedsRepair(cmd) {
+			t.Fatalf("NeedsRepair(%q) = true; not an absolute path, so not ours", cmd)
+		}
+	}
+	// The case the branch exists for still works.
+	if !NeedsRepair("/Applications/sx.app/Contents/MacOS/sx-app") {
+		t.Fatal("absolute GUI binary path must be repaired")
+	}
+	stubGOOS(t, "windows")
+	if !NeedsRepair(`C:\Program Files\sx\sx-app.exe`) {
+		t.Fatal("absolute Windows GUI path must be repaired")
+	}
+	if NeedsRepair(`docker run acme\sx-app.exe`) {
+		t.Fatal("multi-token Windows command must be left alone")
+	}
+}
+
+func TestIsAbsolutePathAcrossPlatforms(t *testing.T) {
+	for _, p := range []string{`/usr/local/bin/sx`, `C:\sx\sx.exe`, `c:/sx/sx.exe`, `\\server\share\sx.exe`} {
+		if !isAbsolutePath(p) {
+			t.Errorf("isAbsolutePath(%q) = false, want true", p)
+		}
+	}
+	for _, p := range []string{"", "sx", "acme/sx-app", "./sx", `..\sx.exe`, "1:/sx"} {
+		if isAbsolutePath(p) {
+			t.Errorf("isAbsolutePath(%q) = true, want false", p)
+		}
+	}
+}

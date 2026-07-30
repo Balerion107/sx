@@ -341,22 +341,38 @@ func (c *Client) installCronJob() error {
 		return nil
 	}
 
-	// `cron add` will not update an existing job, so a job registered by an
-	// earlier version keeps its bare-"sx" command indefinitely. Remove first;
-	// a missing job makes this a no-op and the error is deliberately ignored.
-	if out, err := exec.Command("openclaw", "cron", "remove", "sx-install").CombinedOutput(); err != nil {
-		log.Debug("no existing cron job to replace", "output", string(out))
+	command := clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw", "--scope", "global", "--quiet")
+	add := func() ([]byte, error) {
+		return exec.Command("openclaw", "cron", "add", "sx-install",
+			"--schedule", "*/30 * * * *",
+			"--command", command,
+		).CombinedOutput()
 	}
 
-	cmd := exec.Command("openclaw", "cron", "add", "sx-install",
-		"--schedule", "*/30 * * * *",
-		"--command", clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw", "--scope", "global", "--quiet"),
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Debug("failed to register cron job", "error", err, "output", string(output))
-		// Non-fatal: cron is a nice-to-have, the session hook is primary
-	} else {
+	// Add first. `cron add` will not update an existing job, so a job registered
+	// by an earlier version keeps its old command — but removing up front would
+	// leave no job at all if the add then failed. Only replace once the plain add
+	// has been refused.
+	output, err := add()
+	if err == nil {
 		log.Info("cron job registered", "name", "sx-install", "schedule", "*/30 * * * *")
+		return nil
+	}
+
+	if out, rmErr := exec.Command("openclaw", "cron", "remove", "sx-install").CombinedOutput(); rmErr != nil {
+		// Nothing to replace, so the original add failure stands.
+		log.Debug("failed to register cron job", "error", err, "output", string(output), "remove_output", string(out))
+		return nil
+	}
+
+	if output, err := add(); err != nil {
+		// The job existed, is now gone, and could not be recreated — that is a
+		// real regression in behavior rather than a nice-to-have that never
+		// happened, so it warns rather than whispering at debug.
+		log.Warn("replaced cron job could not be recreated", "name", "sx-install",
+			"error", err, "output", string(output))
+	} else {
+		log.Info("cron job updated", "name", "sx-install", "schedule", "*/30 * * * *")
 	}
 	return nil
 }

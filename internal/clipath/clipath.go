@@ -275,8 +275,32 @@ func NeedsRepair(cmd string) bool {
 	// space ("C:\\Program Files\\sx\\sx-app.exe") splits into a meaningless
 	// argv[0]. Requiring either the GUI binary name or a file that actually
 	// exists keeps this branch from reaching the destructive verdict by accident.
-	if base := normalizedBase(cmd); base == "sx-app" || base == "sx-app.exe" {
+	// Requiring an absolute path keeps a multi-token command out of this branch:
+	// "docker run acme/sx-app" ends in the GUI binary's name but is somebody
+	// else's server, and treating it as ours would overwrite their config. An
+	// unquoted "C:\Program Files\sx\sx-app.exe" — the case this branch exists
+	// for — is absolute and still matches.
+	if isAbsolutePath(cmd) {
+		if base := normalizedBase(cmd); base == "sx-app" || base == "sx-app.exe" {
+			return true
+		}
+	}
+	return false
+}
+
+// isAbsolutePath recognizes POSIX and Windows absolute paths regardless of host,
+// since filepath.IsAbs only understands the running platform's rules and these
+// values come out of config files that get synced between machines.
+func isAbsolutePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	if p[0] == '/' || strings.HasPrefix(p, `\\`) {
 		return true
+	}
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') {
+		c := p[0] | 0x20
+		return c >= 'a' && c <= 'z'
 	}
 	return false
 }
@@ -286,6 +310,15 @@ func NeedsRepair(cmd string) bool {
 func repairVerdict(argv0 string) (verdict, owned bool) {
 	base := normalizedBase(argv0)
 
+	// sx only ever writes one of two forms: an absolute path, or the bare binary
+	// name. Anything relative was written by someone else even when its last
+	// segment looks like ours ("./sx-app", "acme/sx"), and claiming it would
+	// overwrite their config.
+	bare := argv0 == base
+	if !bare && !isAbsolutePath(argv0) {
+		return false, false
+	}
+
 	// The GUI binary is ours and is never usable as the CLI.
 	if base == "sx-app" || base == "sx-app.exe" {
 		return true, true
@@ -293,7 +326,7 @@ func repairVerdict(argv0 string) (verdict, owned bool) {
 	if slices.Contains(legacyBinaryNames, base) {
 		// A bare name defers to PATH at run time, so it cannot go stale the way
 		// an absolute path can.
-		if argv0 == base {
+		if bare {
 			return false, true
 		}
 		return !isExecutableFile(argv0), true
@@ -373,8 +406,15 @@ func Managed(cmd string, subcommands ...string) bool {
 // right now, regardless of what it is called. SX_CLI_PATH can point at a binary
 // with any name, and without this a hook sx wrote from such an override would
 // not be recognized as its own — so an upgrade would append a duplicate.
+//
+// Two limits worth knowing. It only helps while that same override is in effect:
+// a hook written from an override that is no longer set names a binary with no
+// recognizable name, and nothing recorded that it was ours. And it is skipped
+// for anything without a path separator, both because a bare unknown name cannot
+// be a resolved absolute path and to keep Managed from resolving on every entry
+// it inspects.
 func isResolvedCLI(argv0 string) bool {
-	if argv0 == "" {
+	if argv0 == "" || !strings.ContainsAny(argv0, `/\`) {
 		return false
 	}
 	resolved, err := Resolve()
@@ -430,8 +470,12 @@ func splitCommand(cmd string) []string {
 		return nil
 	}
 	if cmd[0] == '"' {
-		// Find the closing quote, skipping the escaped ones shellQuote emits.
-		// strings.Index would stop at the first `\"` and cut argv[0] in half.
+		// Unescaping has to mirror shellQuote, which escapes only on POSIX. On
+		// Windows a backslash is a path separator and a quoted run is literal, so
+		// treating it as an escape ate every separator — "C:\Program Files\sx\sx.exe"
+		// came back as "C:Program Filessxsx.exe", Managed stopped recognizing sx's
+		// own hooks, and the install loop appended a new one every run.
+		honorEscapes := goos != "windows"
 		var head strings.Builder
 		escaped := false
 		for i := 1; i < len(cmd); i++ {
@@ -441,14 +485,14 @@ func splitCommand(cmd string) []string {
 				escaped = false
 				continue
 			}
-			switch c {
-			case '\\':
+			if c == '\\' && honorEscapes {
 				escaped = true
-			case '"':
-				return append([]string{head.String()}, strings.Fields(cmd[i+1:])...)
-			default:
-				head.WriteByte(c)
+				continue
 			}
+			if c == '"' {
+				return append([]string{head.String()}, strings.Fields(cmd[i+1:])...)
+			}
+			head.WriteByte(c)
 		}
 		// Unterminated quote: fall through to whitespace splitting.
 	}
