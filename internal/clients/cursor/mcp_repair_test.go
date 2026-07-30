@@ -1,6 +1,10 @@
 package cursor
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sleuth-io/sx/v2/internal/clipath"
+)
 
 // An entry written by an older desktop-app build names the Wails GUI binary,
 // which can never answer MCP. Skipping registration because "an entry exists"
@@ -9,7 +13,7 @@ import "testing"
 // Only the host-independent cases live here. Whether a bare "sx" gets upgraded
 // depends on what resolves on the machine, which clipath's own tests cover with
 // the resolver stubbed.
-func TestMCPEntryNeedsRepair(t *testing.T) {
+func TestMCPEntryNeedsRewrite(t *testing.T) {
 	cases := []struct {
 		name  string
 		entry any
@@ -43,8 +47,8 @@ func TestMCPEntryNeedsRepair(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := mcpEntryNeedsRepair(tc.entry); got != tc.want {
-				t.Fatalf("mcpEntryNeedsRepair(%v) = %v, want %v", tc.entry, got, tc.want)
+			if got := clipath.MCPEntryNeedsRewrite(tc.entry); got != tc.want {
+				t.Fatalf("clipath.MCPEntryNeedsRewrite(%v) = %v, want %v", tc.entry, got, tc.want)
 			}
 		})
 	}
@@ -54,7 +58,7 @@ func TestMCPEntryNeedsRepair(t *testing.T) {
 // upgrading its path must not rewrite what it does.
 func TestMCPEntryLeavesHandWrittenArgsAlone(t *testing.T) {
 	entry := map[string]any{"command": "sx", "args": []any{"cloud", "serve"}}
-	if mcpEntryNeedsRepair(entry) {
+	if clipath.MCPEntryNeedsRewrite(entry) {
 		t.Fatal("a bare sx with non-default args must be left alone")
 	}
 	// A broken command is replaced regardless of args — it cannot work as-is.
@@ -62,7 +66,7 @@ func TestMCPEntryLeavesHandWrittenArgsAlone(t *testing.T) {
 		"command": "/Applications/sx.app/Contents/MacOS/sx-app",
 		"args":    []any{"cloud", "serve"},
 	}
-	if !mcpEntryNeedsRepair(broken) {
+	if !clipath.MCPEntryNeedsRewrite(broken) {
 		t.Fatal("the GUI binary is unusable whatever its args")
 	}
 }

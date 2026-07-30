@@ -359,6 +359,40 @@ func ShouldRewrite(cmd string) bool {
 	return err == nil
 }
 
+// MCPEntryNeedsRewrite reports whether an existing MCP server entry should be
+// replaced with a freshly resolved one.
+//
+// entry is the decoded JSON object for a single server: a "command" plus "args".
+// A broken command is replaced whatever its arguments, since it cannot work as
+// it stands. The bare-"sx" upgrade is held to a stricter test — that entry does
+// work, only its path is being improved — so it must leave a hand-written
+// invocation of the same binary alone, which means its arguments have to be the
+// ones sx itself writes.
+func MCPEntryNeedsRewrite(entry any) bool {
+	m, ok := entry.(map[string]any)
+	if !ok {
+		return false
+	}
+	cmd, ok := m["command"].(string)
+	if !ok {
+		return false
+	}
+	if NeedsRepair(cmd) {
+		return true
+	}
+	return ShouldRewrite(cmd) && mcpArgsAreOurs(m["args"])
+}
+
+// mcpArgsAreOurs reports whether an entry's args are exactly what sx writes.
+func mcpArgsAreOurs(raw any) bool {
+	args, ok := raw.([]any)
+	if !ok || len(args) != 1 {
+		return false
+	}
+	s, ok := args[0].(string)
+	return ok && s == "serve"
+}
+
 // ResolveOrBare returns the resolved CLI path, or the bare name "sx" when none
 // can be found.
 //
@@ -374,6 +408,11 @@ func ResolveOrBare() string {
 	return binaryName()
 }
 
+// shellEscaped is the set of characters shellQuote escapes on POSIX and
+// splitCommand unescapes. One definition on purpose: the two drifted once,
+// leaving `$` and a backtick to survive a round trip as literal backslashes.
+const shellEscaped = `\\"$` + "`"
+
 // shellQuote quotes a path for embedding in a shell command string, and only
 // when it has to.
 //
@@ -382,12 +421,6 @@ func ResolveOrBare() string {
 // the separators is meaningless there. Only a genuine space forces quoting, and
 // nothing inside is escaped — cmd.exe and PowerShell both treat a
 // double-quoted run as literal.
-// shellEscaped is exactly the set shellQuote escapes on POSIX, and exactly what
-// splitCommand unescapes. Keeping it in one place is the point: they drifted
-// once, leaving `\$` and a backslash-backtick pair to survive a round trip as
-// literal backslashes.
-const shellEscaped = `\\"$` + "`"
-
 func shellQuote(s string) string {
 	if goos == "windows" {
 		if !strings.ContainsAny(s, " \t") {
@@ -395,10 +428,19 @@ func shellQuote(s string) string {
 		}
 		return `"` + s + `"`
 	}
-	if !strings.ContainsAny(s, " \t\"'\\$`") {
+	if !strings.ContainsAny(s, " \t'"+shellEscaped) {
 		return s
 	}
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`").Replace(s) + `"`
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := range len(s) {
+		if strings.IndexByte(shellEscaped, s[i]) >= 0 {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(s[i])
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // Managed reports whether cmd is an sx-written invocation of one of the given

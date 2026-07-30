@@ -123,16 +123,33 @@ func installSessionStartHook(claudeDir string) error {
 	kept := make([]any, 0, len(sessionStart))
 	managedFound := 0
 	upToDate := false
+	placed := false
 	for _, item := range sessionStart {
 		remainder, found, current := stripManagedCommands(item, hookCommand)
 		managedFound += found
 		if current {
 			upToDate = true
 		}
-		// An entry that also holds the user's own hooks survives with just our
-		// command removed; one that held only ours is dropped entirely.
-		if remainder != nil {
-			kept = append(kept, remainder)
+		switch {
+		case found == 0 || remainder != nil:
+			// Untouched, or it also holds the user's own hooks and survives with
+			// just our command removed.
+			if remainder != nil {
+				kept = append(kept, remainder)
+			}
+		case !placed:
+			// This entry held only our command. Reuse it rather than dropping it
+			// and appending a fresh one, so a user-set "matcher" — which decides
+			// when the hook fires — is preserved instead of silently widened.
+			if hookMap, ok := item.(map[string]any); ok {
+				hookMap["hooks"] = []any{
+					map[string]any{"type": "command", "command": hookCommand},
+				}
+				kept = append(kept, hookMap)
+				placed = true
+			}
+		default:
+			// A further duplicate: drop it.
 		}
 	}
 
@@ -144,14 +161,17 @@ func installSessionStartHook(claudeDir string) error {
 	// Get current working directory for context logging
 	cwd, _ := os.Getwd()
 
-	sessionStart = append(kept, map[string]any{
-		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": hookCommand,
+	if !placed {
+		kept = append(kept, map[string]any{
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": hookCommand,
+				},
 			},
-		},
-	})
+		})
+	}
+	sessionStart = kept
 	hooks["SessionStart"] = sessionStart
 	if managedFound > 0 {
 		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand,
@@ -344,33 +364,35 @@ func removeSxHooks(hooks []any, subcommands ...string) []any {
 			filtered = append(filtered, item)
 			continue
 		}
-
 		hooksArray, ok := hookMap["hooks"].([]any)
 		if !ok {
 			filtered = append(filtered, item)
 			continue
 		}
 
-		// Check if this hook entry contains our command
-		hasSxCommand := false
+		// Strip only our commands. Dropping the whole entry would take a
+		// co-located user hook with it — install deliberately preserves those, so
+		// uninstall destroying them would be the worse half of an asymmetry.
+		keptCommands := make([]any, 0, len(hooksArray))
+		removed := false
 		for _, h := range hooksArray {
-			hMap, ok := h.(map[string]any)
-			if !ok {
-				continue
+			if hMap, ok := h.(map[string]any); ok {
+				if cmd, ok := hMap["command"].(string); ok && clipath.Managed(cmd, subcommands...) {
+					removed = true
+					continue
+				}
 			}
-			cmd, ok := hMap["command"].(string)
-			if !ok {
-				continue
-			}
-			if clipath.Managed(cmd, subcommands...) {
-				hasSxCommand = true
-				break
-			}
+			keptCommands = append(keptCommands, h)
 		}
 
-		if !hasSxCommand {
+		switch {
+		case !removed:
 			filtered = append(filtered, item)
+		case len(keptCommands) > 0:
+			hookMap["hooks"] = keptCommands
+			filtered = append(filtered, hookMap)
 		}
+		// Entry held only our commands: drop it.
 	}
 	return filtered
 }

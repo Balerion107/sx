@@ -364,7 +364,7 @@ func (c *Client) registerSkillsMCPServer() error {
 	// them broken forever, since the fix below is never reached. A hand-written
 	// "skills" entry is still preserved.
 	if existing, exists := config.MCPServers["skills"]; exists {
-		if !mcpEntryNeedsRepair(existing) {
+		if !clipath.MCPEntryNeedsRewrite(existing) {
 			return nil
 		}
 	}
@@ -943,37 +943,4 @@ func (c *Client) uninstallMCPServerByName(name string) error {
 func init() {
 	// Auto-register on package import
 	clients.Register(NewClient())
-}
-
-// mcpEntryNeedsRepair reports whether an existing "skills" MCP entry was
-// written by sx and has since become unusable — see clipath.NeedsRepair.
-func mcpEntryNeedsRepair(entry any) bool {
-	m, ok := entry.(map[string]any)
-	if !ok {
-		return false
-	}
-	cmd, ok := m["command"].(string)
-	if !ok {
-		return false
-	}
-	// A broken entry is replaced whatever its args: it cannot work as it stands.
-	if clipath.NeedsRepair(cmd) {
-		return true
-	}
-	// The bare-"sx" upgrade is different — that entry works, we are only
-	// improving its path — so it must leave a hand-written one alone. Only
-	// rewrite when the args are the ones sx itself writes.
-	return clipath.ShouldRewrite(cmd) && argsAreOurs(m["args"])
-}
-
-// argsAreOurs reports whether an MCP entry's args are exactly what sx writes.
-// A bare "sx" with different args is somebody else's invocation of the same
-// binary, and replacing those args would silently change what it does.
-func argsAreOurs(raw any) bool {
-	args, ok := raw.([]any)
-	if !ok || len(args) != 1 {
-		return false
-	}
-	s, ok := args[0].(string)
-	return ok && s == "serve"
 }
