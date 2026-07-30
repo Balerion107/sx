@@ -127,7 +127,9 @@ func installSessionStartHook(claudeDir string) error {
 	upToDate := false
 	placed := false
 	for _, item := range sessionStart {
-		remainder, found, current := updateManagedCommands(item, hookCommand, "install", &placed)
+		// No own-matcher for SessionStart: sx appends without one, so any matcher
+		// present is the user's and is left alone.
+		remainder, found, current := updateManagedCommands(item, hookCommand, "install", "", &placed)
 		managedFound += found
 		if current {
 			upToDate = true
@@ -299,7 +301,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 // Updating in place rather than removing and re-adding is what preserves a
 // user-set "matcher" on the entry and keys such as "timeout" on the command
 // object; only the "command" value itself is touched.
-func updateManagedCommands(item any, hookCommand, subcommand string, placed *bool) (remainder any, found int, current bool) {
+func updateManagedCommands(item any, hookCommand, subcommand, ownMatcher string, placed *bool) (remainder any, found int, current bool) {
 	hookMap, ok := item.(map[string]any)
 	if !ok {
 		return item, 0, false
@@ -348,13 +350,20 @@ func updateManagedCommands(item any, hookCommand, subcommand string, placed *boo
 		return nil, found, current
 	}
 	hookMap["hooks"] = keptCommands
+	// Where the matcher is sx's own config rather than the user's, re-assert it:
+	// otherwise an entry carrying a stale or hand-edited matcher keeps it
+	// forever, and the hook silently fires on the wrong set of events.
+	if ownMatcher != "" && *placed {
+		if existing, _ := hookMap["matcher"].(string); existing != ownMatcher {
+			hookMap["matcher"] = ownMatcher
+		}
+	}
 	return hookMap, found, current
 }
 
-// removeSxHooks filters out hook entries that invoke sx with any of the given
-// subcommands, in either the legacy bare-"sx" form or the absolute-path form
-// current versions write.
-// removeSxHooks strips sx's commands from the given hook entries. currentCommand
+// removeSxHooks strips sx's commands from the given hook entries, in either the
+// legacy bare-"sx" form or the absolute-path form current versions write, and
+// drops an entry only when nothing of the user's remains in it. currentCommand
 // is matched byte-for-byte alongside the subcommand predicate, the same pairing
 // install uses: if Managed ever has a false negative for a command sx wrote,
 // uninstall would otherwise leave that hook behind.
@@ -400,6 +409,11 @@ func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) (f
 	return filtered, removed
 }
 
+// postToolUseMatcher is sx's own matcher for the usage-reporting hook: it decides
+// which tool events are worth reporting, which is sx's concern rather than the
+// user's. Unlike a SessionStart matcher, it is re-asserted on update.
+const postToolUseMatcher = "Skill|Task|SlashCommand|mcp__.*"
+
 // installUsageReportingHook installs the PostToolUse hook for usage tracking
 func installUsageReportingHook(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
@@ -439,7 +453,7 @@ func installUsageReportingHook(claudeDir string) error {
 	upToDate := false
 	placed := false
 	for _, item := range postToolUse {
-		remainder, found, current := updateManagedCommands(item, hookCommand, "report-usage", &placed)
+		remainder, found, current := updateManagedCommands(item, hookCommand, "report-usage", postToolUseMatcher, &placed)
 		managedFound += found
 		if current {
 			upToDate = true
@@ -455,7 +469,7 @@ func installUsageReportingHook(claudeDir string) error {
 
 	if !placed {
 		kept = append(kept, map[string]any{
-			"matcher": "Skill|Task|SlashCommand|mcp__.*",
+			"matcher": postToolUseMatcher,
 			"hooks": []any{
 				map[string]any{
 					"type":    "command",

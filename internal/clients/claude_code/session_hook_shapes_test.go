@@ -104,6 +104,7 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 				}},
 			},
 			assert: func(t *testing.T, entries []any) {
+				assertUpdated(t, entries)
 				cmds := commandsIn(entries)
 				if countManaged(cmds) != 1 {
 					t.Fatalf("want one managed command, got %v", cmds)
@@ -211,4 +212,93 @@ func TestRemoveSxHooksStripsOnlyOurCommandAndReportsIt(t *testing.T) {
 	if len(cmds) != 1 || cmds[0] != "my-linter" {
 		t.Fatalf("user hook not preserved: %v", cmds)
 	}
+}
+
+// PostToolUse carries sx's own matcher, so unlike SessionStart it must be
+// re-asserted on update — a stale or hand-edited one otherwise persists and the
+// hook reports on the wrong events forever.
+func TestInstallUsageReportingHookShapes(t *testing.T) {
+	t.Run("re-asserts sx's own matcher", func(t *testing.T) {
+		dir := settingsWithPostToolUse(t, []any{
+			map[string]any{
+				"matcher": "Bash",
+				"hooks":   []any{map[string]any{"type": "command", "command": "/previous/sx report-usage --client=claude-code"}},
+			},
+		})
+		if err := installUsageReportingHook(dir); err != nil {
+			t.Fatalf("installUsageReportingHook: %v", err)
+		}
+		entries := readHookArray(t, dir, "PostToolUse")
+		for _, e := range entries {
+			m, _ := e.(map[string]any)
+			if m["matcher"] == postToolUseMatcher {
+				return
+			}
+		}
+		t.Fatalf("sx's matcher was not re-asserted: %v", entries)
+	})
+
+	t.Run("collapses duplicates and keeps a user hook", func(t *testing.T) {
+		dir := settingsWithPostToolUse(t, []any{
+			map[string]any{"hooks": []any{
+				map[string]any{"type": "command", "command": "/previous/sx report-usage --client=claude-code"},
+				map[string]any{"type": "command", "command": "my-telemetry"},
+			}},
+			map[string]any{"hooks": []any{
+				map[string]any{"type": "command", "command": "sx report-usage --client=claude-code"},
+			}},
+		})
+		if err := installUsageReportingHook(dir); err != nil {
+			t.Fatalf("installUsageReportingHook: %v", err)
+		}
+		cmds := commandsIn(readHookArray(t, dir, "PostToolUse"))
+		managed := 0
+		userKept := false
+		for _, c := range cmds {
+			if clipath.Managed(c, "report-usage") {
+				managed++
+			}
+			if c == "my-telemetry" {
+				userKept = true
+			}
+		}
+		if managed != 1 {
+			t.Fatalf("want one managed report-usage command, got %d in %v", managed, cmds)
+		}
+		if !userKept {
+			t.Fatalf("user hook was dropped: %v", cmds)
+		}
+	})
+}
+
+func settingsWithPostToolUse(t *testing.T, entries []any) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := map[string]any{"hooks": map[string]any{"PostToolUse": entries}}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func readHookArray(t *testing.T, claudeDir, name string) []any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+	hooks, _ := out["hooks"].(map[string]any)
+	entries, _ := hooks[name].([]any)
+	return entries
 }
