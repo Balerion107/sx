@@ -272,7 +272,7 @@ func (c *Client) InstallBootstrap(ctx context.Context, opts []bootstrap.Option) 
 		if err := c.installSessionHook(openclawDir); err != nil {
 			return err
 		}
-		if err := c.installCronJob(); err != nil {
+		if err := c.installCronJob(openclawDir); err != nil {
 			return err
 		}
 	}
@@ -332,7 +332,7 @@ export default async function handler() {
 }
 
 // installCronJob registers a cron job via openclaw CLI for periodic updates
-func (c *Client) installCronJob() error {
+func (c *Client) installCronJob(openclawDir string) error {
 	log := logger.Get()
 
 	// Check if openclaw CLI is available
@@ -349,6 +349,22 @@ func (c *Client) installCronJob() error {
 		).CombinedOutput()
 	}
 
+	// Skip entirely when the job we registered already carries this command.
+	// `openclaw cron` has no update verb, so the only way to change a job is
+	// remove-then-add — and doing that on every install would destroy and
+	// recreate a working job for no reason. The marker sits beside the hook this
+	// client already writes.
+	markerPath := filepath.Join(openclawDir, handlers.DirHooks, "sx-install", ".cron-command")
+	if prev, err := os.ReadFile(markerPath); err == nil && strings.TrimSpace(string(prev)) == command {
+		log.Debug("cron job already current", "name", "sx-install")
+		return nil
+	}
+	recordMarker := func() {
+		if err := os.WriteFile(markerPath, []byte(command+"\n"), 0644); err != nil {
+			log.Debug("failed to record cron command marker", "error", err)
+		}
+	}
+
 	// Add first. `cron add` will not update an existing job, so a job registered
 	// by an earlier version keeps its old command — but removing up front would
 	// leave no job at all if the add then failed. Only replace once the plain add
@@ -356,6 +372,7 @@ func (c *Client) installCronJob() error {
 	output, err := add()
 	if err == nil {
 		log.Info("cron job registered", "name", "sx-install", "schedule", "*/30 * * * *")
+		recordMarker()
 		return nil
 	}
 
@@ -373,6 +390,7 @@ func (c *Client) installCronJob() error {
 			"error", err, "output", string(output))
 	} else {
 		log.Info("cron job updated", "name", "sx-install", "schedule", "*/30 * * * *")
+		recordMarker()
 	}
 	return nil
 }

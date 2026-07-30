@@ -512,3 +512,38 @@ func TestIsAbsolutePathAcrossPlatforms(t *testing.T) {
 		}
 	}
 }
+
+// A bare "sx" is written when no CLI can be found. It is not broken, so
+// NeedsRepair leaves it, but it should be upgraded once a CLI exists — otherwise
+// a degraded first install never improves.
+func TestShouldRewriteUpgradesDegradedBareEntry(t *testing.T) {
+	stubGOOS(t, "darwin")
+	// The CLI lives away from the stubbed executable, or the sibling lookup would
+	// find it and Resolve would succeed in the case that needs it to fail.
+	cliDir := tempRoot(t)
+	cli := writeFakeCLI(t, cliDir, "sx")
+	appDir := tempRoot(t)
+
+	// No CLI resolvable: nothing better to point at, so leave it alone.
+	t.Setenv(EnvOverride, filepath.Join(appDir, "absent"))
+	t.Setenv("PATH", tempRoot(t))
+	stubExecutable(t, filepath.Join(appDir, "sx-app"))
+	stubInstallDirs(t, nil)
+	if ShouldRewrite("sx") {
+		t.Fatal("with no CLI resolvable a bare sx is the best available; leave it")
+	}
+
+	// CLI resolvable: upgrade it.
+	t.Setenv(EnvOverride, cli)
+	if !ShouldRewrite("sx") {
+		t.Fatal("bare sx should be upgraded once a CLI resolves")
+	}
+	// Still must not touch anyone else's entry.
+	if ShouldRewrite("npx -y @acme/mcp") {
+		t.Fatal("a third-party command must never be rewritten")
+	}
+	// An already-correct absolute path needs no rewrite.
+	if ShouldRewrite(cli) {
+		t.Fatalf("current path %q should not be rewritten", cli)
+	}
+}

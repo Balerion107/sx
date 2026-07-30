@@ -5,6 +5,10 @@ import "testing"
 // An entry written by an older desktop-app build names the Wails GUI binary,
 // which can never answer MCP. Skipping registration because "an entry exists"
 // would leave those users broken permanently, since nothing else rewrites it.
+//
+// Only the host-independent cases live here. Whether a bare "sx" gets upgraded
+// depends on what resolves on the machine, which clipath's own tests cover with
+// the resolver stubbed.
 func TestMCPEntryNeedsRepair(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -20,11 +24,6 @@ func TestMCPEntryNeedsRepair(t *testing.T) {
 			name:  "cli path that no longer exists",
 			entry: map[string]any{"command": "/gone/sx", "args": []any{"serve"}},
 			want:  true,
-		},
-		{
-			name:  "bare sx defers to PATH and is fine",
-			entry: map[string]any{"command": "sx", "args": []any{"serve"}},
-			want:  false,
 		},
 		{
 			name:  "hand-written third-party server must be preserved",

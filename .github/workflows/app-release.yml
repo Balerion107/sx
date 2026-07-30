@@ -171,11 +171,16 @@ jobs:
           # than the one on the release page.
           LDFLAGS="-s -w"
           LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}"
-          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=${GITHUB_SHA}"
-          # The commit's own date, not `date -u`: the six matrix jobs run at
-          # different times, and a wall-clock stamp makes six builds of the same
+          # HEAD, not GITHUB_SHA. On a backfill dispatch the checkout is the
+          # release tag while GITHUB_SHA is the dispatching branch, so GITHUB_SHA
+          # would stamp a commit that is not the one being built — and the date
+          # lookup for it could fail and silently fall back to wall clock.
+          BUILD_COMMIT="$(git rev-parse HEAD)"
+          # The commit's own date rather than `date -u`: the six matrix jobs run
+          # at different times, and a wall-clock stamp makes six builds of one
           # commit report six different dates.
-          BUILD_DATE="$(git show -s --format=%cI "${GITHUB_SHA}" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BUILD_DATE="$(git show -s --format=%cI HEAD)"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=${BUILD_COMMIT}"
           LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=${BUILD_DATE}"
 
           CGO_ENABLED=0 GOOS="$GOOS_ARG" GOARCH="$GOARCH_ARG" go build \

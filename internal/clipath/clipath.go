@@ -334,6 +334,31 @@ func repairVerdict(argv0 string) (verdict, owned bool) {
 	return false, false
 }
 
+// ShouldRewrite reports whether an existing config command should be replaced
+// with the current one.
+//
+// That is NeedsRepair plus one upgrade case it deliberately excludes: a bare
+// "sx", which was written when no CLI could be found. It still works wherever
+// PATH has one, so it is not broken — but once a CLI is resolvable, an absolute
+// path is strictly better, and without this a degraded first install stays
+// degraded forever.
+func ShouldRewrite(cmd string) bool {
+	if NeedsRepair(cmd) {
+		return true
+	}
+	fields := splitCommand(cmd)
+	if len(fields) == 0 {
+		return false
+	}
+	argv0 := fields[0]
+	if argv0 != normalizedBase(argv0) || !slices.Contains(legacyBinaryNames, strings.ToLower(argv0)) {
+		return false
+	}
+	// Bare name: worth upgrading only if there is something better to point at.
+	_, err := Resolve()
+	return err == nil
+}
+
 // ResolveOrBare returns the resolved CLI path, or the bare name "sx" when none
 // can be found.
 //
@@ -470,23 +495,18 @@ func splitCommand(cmd string) []string {
 		return nil
 	}
 	if cmd[0] == '"' {
-		// Unescaping has to mirror shellQuote, which escapes only on POSIX. On
-		// Windows a backslash is a path separator and a quoted run is literal, so
-		// treating it as an escape ate every separator — "C:\Program Files\sx\sx.exe"
-		// came back as "C:Program Filessxsx.exe", Managed stopped recognizing sx's
-		// own hooks, and the install loop appended a new one every run.
-		honorEscapes := goos != "windows"
+		// A backslash is an escape only when it precedes one of the two characters
+		// shellQuote ever escapes. In a Windows path it precedes a path segment,
+		// so it stays literal — which is why this is decided per character rather
+		// than by the host OS: these configs get synced between machines, and
+		// keying on runtime.GOOS mangled a Windows path read on POSIX and left a
+		// POSIX escape intact when read on Windows.
 		var head strings.Builder
-		escaped := false
 		for i := 1; i < len(cmd); i++ {
 			c := cmd[i]
-			if escaped {
-				head.WriteByte(c)
-				escaped = false
-				continue
-			}
-			if c == '\\' && honorEscapes {
-				escaped = true
+			if c == '\\' && i+1 < len(cmd) && (cmd[i+1] == '"' || cmd[i+1] == '\\') {
+				head.WriteByte(cmd[i+1])
+				i++
 				continue
 			}
 			if c == '"' {

@@ -574,5 +574,7 @@ func mcpEntryNeedsRepair(entry any) bool {
 	if !ok {
 		return false
 	}
-	return clipath.NeedsRepair(cmd)
+	// ShouldRewrite, not NeedsRepair: it also upgrades a bare "sx" written by a
+	// degraded install once a real CLI is resolvable.
+	return clipath.ShouldRewrite(cmd)
 }

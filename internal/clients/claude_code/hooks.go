@@ -114,55 +114,44 @@ func installSessionStartHook(claudeDir string) error {
 
 	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code")
 
-	// First, check if exact hook command already exists
-	exactMatch := false
-	var oldHookRef map[string]any
+	// Collapse to exactly one managed entry rather than rewriting a single "old"
+	// one. Several can accumulate — an absolute path goes stale when the app
+	// moves, and older versions wrote a bare "sx" — and rewriting one leaves the
+	// rest to run the install again on every session start. Byte-equality is
+	// checked alongside Managed so a false negative there cannot grow the list
+	// without bound.
+	kept := make([]any, 0, len(sessionStart))
+	managedFound := 0
+	upToDate := false
 	for _, item := range sessionStart {
-		if hookMap, ok := item.(map[string]any); ok {
-			if hooksArray, ok := hookMap["hooks"].([]any); ok {
-				for _, h := range hooksArray {
-					if hMap, ok := h.(map[string]any); ok {
-						if cmd, ok := hMap["command"].(string); ok {
-							if cmd == hookCommand {
-								exactMatch = true
-								break
-							}
-							if clipath.Managed(cmd, "install") {
-								oldHookRef = hMap // Remember for updating
-							}
-						}
-					}
-				}
-			}
+		if isManagedSessionStartEntry(item, hookCommand, &upToDate) {
+			managedFound++
+			continue
 		}
-		if exactMatch {
-			break
-		}
+		kept = append(kept, item)
 	}
 
-	// Already have exact match, nothing to do
-	if exactMatch {
+	// Nothing to do only when there was exactly one and it is already current.
+	if upToDate && managedFound == 1 {
 		return nil
 	}
 
 	// Get current working directory for context logging
 	cwd, _ := os.Getwd()
 
-	// Update old hook if found, otherwise add new
-	if oldHookRef != nil {
-		oldHookRef["command"] = hookCommand
-		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
-	} else {
-		newHook := map[string]any{
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": hookCommand,
-				},
+	sessionStart = append(kept, map[string]any{
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": hookCommand,
 			},
-		}
-		sessionStart = append(sessionStart, newHook)
-		hooks["SessionStart"] = sessionStart
+		},
+	})
+	hooks["SessionStart"] = sessionStart
+	if managedFound > 0 {
+		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand,
+			"replaced", managedFound, "cwd", cwd)
+	} else {
 		log.Info("hook installed", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
 	}
 
@@ -286,6 +275,34 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 	}
 
 	return nil
+}
+
+// isManagedSessionStartEntry reports whether a SessionStart entry is an
+// sx-written install hook, setting upToDate when it already carries the current
+// command. An entry that also holds someone else's hook is left alone: the
+// managed command is only ever written in an entry of its own.
+func isManagedSessionStartEntry(item any, hookCommand string, upToDate *bool) bool {
+	hookMap, ok := item.(map[string]any)
+	if !ok {
+		return false
+	}
+	hooksArray, ok := hookMap["hooks"].([]any)
+	if !ok || len(hooksArray) != 1 {
+		return false
+	}
+	hMap, ok := hooksArray[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	cmd, ok := hMap["command"].(string)
+	if !ok {
+		return false
+	}
+	if cmd == hookCommand {
+		*upToDate = true
+		return true
+	}
+	return clipath.Managed(cmd, "install")
 }
 
 // removeSxHooks filters out hook entries that invoke sx with any of the given
