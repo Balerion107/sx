@@ -119,7 +119,7 @@ func installSessionStartHook(claudeDir string) error {
 
 	// SessionStart carries no matcher of sx's own, so an entry sx reuses keeps
 	// whatever matcher the user put on it.
-	converged, changed := convergeHookArray(sessionStart, hookCommand, "install", "")
+	converged, changed, replaced := convergeHookArray(sessionStart, hookCommand, "install", "")
 	if !changed {
 		return nil
 	}
@@ -128,7 +128,12 @@ func installSessionStartHook(claudeDir string) error {
 	cwd, _ := os.Getwd()
 
 	hooks["SessionStart"] = converged
-	log.Info("hook converged", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
+	if replaced > 0 {
+		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand,
+			"replaced", replaced, "cwd", cwd)
+	} else {
+		log.Info("hook installed", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
+	}
 
 	// Write back to file
 	data, err := json.MarshalIndent(settings, "", "  ")
@@ -270,7 +275,7 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 //
 // The command object is carried over rather than rebuilt, so keys the user added
 // to it — "timeout" — survive.
-func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool) {
+func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) (out []any, changed bool, replaced int) {
 	kept := make([]any, 0, len(entries)+1)
 
 	var ourEntry map[string]any   // an entry that held only our command
@@ -278,6 +283,7 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	found := 0
 	alreadyCurrent := false
 	shared := false
+	inheritedMatcher := ""
 
 	isOurs := func(obj map[string]any) bool {
 		cmd, ok := obj["command"].(string)
@@ -322,7 +328,14 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 			// Nothing of ours here.
 			kept = append(kept, item)
 		case len(theirs) > 0:
-			// Shared: leave their hooks and their matcher exactly as they are.
+			// Shared: leave their hooks and their matcher exactly as they are, and
+			// remember the matcher so the entry sx splits out inherits it. Without
+			// that, a matcher the user put on the shared entry would stop applying
+			// to sx's command and the hook would fire on more sources than they
+			// configured.
+			if m, ok := entry["matcher"].(string); ok && inheritedMatcher == "" {
+				inheritedMatcher = m
+			}
 			entry["hooks"] = theirs
 			kept = append(kept, entry)
 			shared = true
@@ -335,17 +348,27 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	}
 
 	if ourCommand == nil {
-		ourCommand = map[string]any{"type": "command"}
+		ourCommand = map[string]any{}
 	}
 	ourCommand["command"] = hookCommand
+	// The object may have been inherited from a hand-written entry with no
+	// "type"; sx owns this entry outright now, so it should be well-formed.
+	if t, _ := ourCommand["type"].(string); t == "" {
+		ourCommand["type"] = "command"
+	}
 
 	if ourEntry == nil {
 		ourEntry = map[string]any{}
 	}
 	priorMatcher, _ := ourEntry["matcher"].(string)
 	ourEntry["hooks"] = []any{ourCommand}
-	if ownMatcher != "" {
+	switch {
+	case ownMatcher != "":
+		// sx owns the matcher for this hook.
 		ourEntry["matcher"] = ownMatcher
+	case priorMatcher == "" && inheritedMatcher != "":
+		// Split out of a shared entry: keep the user's matcher on our copy.
+		ourEntry["matcher"] = inheritedMatcher
 	}
 	kept = append(kept, ourEntry)
 
@@ -355,7 +378,7 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	if unchanged && ownMatcher != "" && priorMatcher != ownMatcher {
 		unchanged = false
 	}
-	return kept, !unchanged
+	return kept, !unchanged, found
 }
 
 // removeSxHooks strips sx's commands from the given hook entries, in either the
@@ -444,12 +467,16 @@ func installUsageReportingHook(claudeDir string) error {
 
 	hookCommand := clipath.CommandOrBare("report-usage", "--client=claude-code")
 
-	converged, changed := convergeHookArray(postToolUse, hookCommand, "report-usage", postToolUseMatcher)
+	converged, changed, replaced := convergeHookArray(postToolUse, hookCommand, "report-usage", postToolUseMatcher)
 	if !changed {
 		return nil
 	}
 	hooks["PostToolUse"] = converged
-	log.Info("hook converged", "hook", "PostToolUse", "command", hookCommand)
+	if replaced > 0 {
+		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand, "replaced", replaced)
+	} else {
+		log.Info("hook installed", "hook", "PostToolUse", "command", hookCommand)
+	}
 
 	// Write back to file
 	data, err := json.MarshalIndent(settings, "", "  ")

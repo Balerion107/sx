@@ -180,16 +180,30 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 			},
 			assert: func(t *testing.T, entries []any) {
 				assertUpdated(t, entries)
-				// The user's hook must still be under their matcher, and sx's
-				// command must have moved out rather than dragging it along.
+				// sx's command must still be present exactly once — the split is
+				// worthless if it simply lost it.
+				if n := countManaged(commandsIn(entries)); n != 1 {
+					t.Fatalf("want sx's command exactly once after the split, got %d in %v", n, entries)
+				}
+				userOK, ourMatcher := false, ""
 				for _, e := range entries {
 					m, _ := e.(map[string]any)
 					cmds := commandsIn([]any{m})
 					if len(cmds) == 1 && cmds[0] == "my-linter" && m["matcher"] == "startup" {
-						return
+						userOK = true
+					}
+					if len(cmds) == 1 && countManaged(cmds) == 1 {
+						ourMatcher, _ = m["matcher"].(string)
 					}
 				}
-				t.Fatalf("user hook lost its matcher or is still sharing with sx: %v", entries)
+				if !userOK {
+					t.Fatalf("user hook lost its matcher or is still sharing with sx: %v", entries)
+				}
+				// And our split-out copy must inherit that matcher, or the hook
+				// starts firing on more session sources than were configured.
+				if ourMatcher != "startup" {
+					t.Fatalf("sx's split entry did not inherit the user's matcher (got %q): %v", ourMatcher, entries)
+				}
 			},
 		},
 		{
