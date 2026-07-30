@@ -416,3 +416,31 @@ func TestTimeoutSurvivesADuplicateInAnEarlierEntry(t *testing.T) {
 	}
 	t.Fatalf("timeout lost to the earlier duplicate: %v", entries)
 }
+
+// The type normalization has to reach disk. A command that is already current
+// but lacks "type" is precisely the state the normalization exists for, and it
+// is also the state the caller's early return skips — so this asserts the
+// written file, not just the in-memory result.
+func TestTypeNormalizationIsWritten(t *testing.T) {
+	current := clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code")
+	dir := settingsWithHook(t, "SessionStart", []any{
+		map[string]any{"hooks": []any{map[string]any{"command": current}}},
+	})
+	if err := installSessionStartHook(dir); err != nil {
+		t.Fatalf("installSessionStartHook: %v", err)
+	}
+	for _, e := range readHookArray(t, dir, "SessionStart") {
+		m, _ := e.(map[string]any)
+		arr, _ := m["hooks"].([]any)
+		for _, h := range arr {
+			hm, _ := h.(map[string]any)
+			if hm["command"] == current {
+				if hm["type"] != "command" {
+					t.Fatalf(`normalization never reached disk: %#v`, hm)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("sx's command is missing from the written file")
+}

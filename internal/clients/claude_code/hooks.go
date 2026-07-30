@@ -287,8 +287,9 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool, int, int) {
 	kept := make([]any, 0, len(entries)+1)
 
-	var ourEntry map[string]any // an entry that held only our command
-	var ours []map[string]any   // every copy of our command found
+	var ourEntry map[string]any        // an entry that held only our command
+	var ourEntryCommand map[string]any // its command object, preferred in the merge
+	var ours []map[string]any          // every copy of our command found
 	inheritedMatcher := ""
 	alreadyCurrent := false
 	replaced := 0
@@ -324,18 +325,23 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 			kept = append(kept, entry)
 			shared = true
 		case ourEntry == nil:
-			// Held only our command, so it is ours to reuse.
+			// Held only our command, so it is ours to reuse. Its command object
+			// takes precedence in the merge below: when copies disagree on a key,
+			// the one on the entry sx keeps is the likelier place the user set it.
 			ourEntry = entry
+			ourEntryCommand = mine[0]
 		default:
 			// A further duplicate: drop it.
 		}
 	}
 
-	ourCommand := mergeCommandObjects(ours)
+	ourCommand := mergeCommandObjects(ourEntryCommand, ours)
 	ourCommand["command"] = hookCommand
 	// The object can be inherited from a hand-written entry with no "type"; the
 	// entry sx owns outright should be well-formed.
-	if t, _ := ourCommand["type"].(string); t == "" {
+	t, _ := ourCommand["type"].(string)
+	hadType := t != ""
+	if !hadType {
 		ourCommand["type"] = "command"
 	}
 
@@ -363,6 +369,12 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	// it was not sharing an entry, and any matcher sx owns already matched.
 	unchanged := len(ours) == 1 && alreadyCurrent && !shared
 	if unchanged && ownMatcher != "" && priorMatcher != ownMatcher {
+		unchanged = false
+	}
+	// Normalizing "type" only matters if the result is written; a hook whose
+	// command is already current is exactly the state that normalization exists
+	// for, and reporting it unchanged would leave the fix in memory.
+	if unchanged && !hadType {
 		unchanged = false
 	}
 	return kept, !unchanged, len(ours), replaced
@@ -399,12 +411,20 @@ func splitEntry(item any, hookCommand, subcommand string) (entry map[string]any,
 	return entry, theirs, mine
 }
 
-// mergeCommandObjects folds every copy of sx's command object into one, keeping
-// the first value seen for each key. Copies are indistinguishable as to which
-// the user edited, so a "timeout" set on any of them is honored rather than
-// silently dropped because it sat on the copy that lost.
-func mergeCommandObjects(objs []map[string]any) map[string]any {
+// mergeCommandObjects folds every copy of sx's command object into one so that a
+// key the user set — "timeout" — is honored wherever it sat, rather than being
+// dropped because it was on the copy that lost.
+//
+// preferred is the object from the entry sx keeps, and its values win any
+// collision; without it the winner would be decided by array order, letting a
+// duplicate that is about to be dropped override the entry that survives.
+func mergeCommandObjects(preferred map[string]any, objs []map[string]any) map[string]any {
 	merged := map[string]any{}
+	for k, v := range preferred {
+		if k != "command" {
+			merged[k] = v
+		}
+	}
 	for _, obj := range objs {
 		for k, v := range obj {
 			if k == "command" {
