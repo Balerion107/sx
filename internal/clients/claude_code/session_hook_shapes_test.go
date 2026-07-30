@@ -348,3 +348,35 @@ func TestPostToolUseCorrectsStaleMatcherWithCurrentCommand(t *testing.T) {
 	}
 	t.Fatal("a stale matcher on sx's own hook was left uncorrected")
 }
+
+// A duplicate inside a user's matcher'd entry must not pull that matcher onto
+// sx's own entry — the mirror of the widening that inheritance prevents.
+func TestSessionStartDoesNotNarrowOwnEntryFromDuplicate(t *testing.T) {
+	dir := settingsWithHook(t, "SessionStart", []any{
+		// sx's own entry, no matcher: fires on every session source.
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": "/previous/sx install --hook-mode --client=claude-code"},
+		}},
+		// A duplicate of ours living in the user's narrow entry.
+		map[string]any{"matcher": "startup", "hooks": []any{
+			map[string]any{"type": "command", "command": "sx install --hook-mode --client=claude-code"},
+		}},
+	})
+	if err := installSessionStartHook(dir); err != nil {
+		t.Fatalf("installSessionStartHook: %v", err)
+	}
+	entries := readHookArray(t, dir, "SessionStart")
+	if n := countManaged(commandsIn(entries)); n != 1 {
+		t.Fatalf("want one managed command, got %d in %v", n, entries)
+	}
+	for _, e := range entries {
+		m, _ := e.(map[string]any)
+		if countManaged(commandsIn([]any{m})) == 1 {
+			if got, _ := m["matcher"].(string); got != "" {
+				t.Fatalf("sx's own entry gained matcher %q, narrowing when it fires", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("sx's command vanished: %v", entries)
+}

@@ -275,12 +275,13 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 //
 // The command object is carried over rather than rebuilt, so keys the user added
 // to it — "timeout" — survive.
-func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) (out []any, changed bool, replaced int) {
+func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool, int) {
 	kept := make([]any, 0, len(entries)+1)
 
 	var ourEntry map[string]any   // an entry that held only our command
 	var ourCommand map[string]any // the command object to carry forward
 	found := 0
+	replacedCount := 0
 	alreadyCurrent := false
 	shared := false
 	inheritedMatcher := ""
@@ -317,6 +318,9 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 			found++
 			if cmd, _ := obj["command"].(string); cmd == hookCommand {
 				alreadyCurrent = true
+			} else {
+				// Only a command whose text actually differs counts as replaced.
+				replacedCount++
 			}
 			if ourCommand == nil {
 				ourCommand = obj
@@ -357,7 +361,11 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 		ourCommand["type"] = "command"
 	}
 
-	if ourEntry == nil {
+	// Whether we had an entry of our own decides both the matcher rule below and
+	// the change detection: inheriting into an entry sx already owned would
+	// narrow its matcher, the mirror of the widening this inheritance prevents.
+	createdEntry := ourEntry == nil
+	if createdEntry {
 		ourEntry = map[string]any{}
 	}
 	priorMatcher, _ := ourEntry["matcher"].(string)
@@ -366,7 +374,7 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	case ownMatcher != "":
 		// sx owns the matcher for this hook.
 		ourEntry["matcher"] = ownMatcher
-	case priorMatcher == "" && inheritedMatcher != "":
+	case createdEntry && inheritedMatcher != "":
 		// Split out of a shared entry: keep the user's matcher on our copy.
 		ourEntry["matcher"] = inheritedMatcher
 	}
@@ -378,7 +386,12 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 	if unchanged && ownMatcher != "" && priorMatcher != ownMatcher {
 		unchanged = false
 	}
-	return kept, !unchanged, found
+	// Duplicates that were dropped are replacements too, whatever text they
+	// carried; a matcher-only correction replaces nothing and reports zero.
+	if dropped := found - 1; dropped > 0 && replacedCount < dropped {
+		replacedCount = dropped
+	}
+	return kept, !unchanged, replacedCount
 }
 
 // removeSxHooks strips sx's commands from the given hook entries, in either the
@@ -387,8 +400,9 @@ func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string
 // is matched byte-for-byte alongside the subcommand predicate, the same pairing
 // install uses: if Managed ever has a false negative for a command sx wrote,
 // uninstall would otherwise leave that hook behind.
-func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) (filteredOut []any, removed int) {
+func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) ([]any, int) {
 	var filtered []any
+	removed := 0
 	for _, item := range hooks {
 		hookMap, ok := item.(map[string]any)
 		if !ok {
