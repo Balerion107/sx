@@ -83,7 +83,10 @@ func installMCPServerFromConfig(claudeDir string, config *bootstrap.MCPServerCon
 	return nil
 }
 
-// installSessionStartHook installs the SessionStart hook for auto-updating assets
+// installSessionStartHook converges the SessionStart hook on the current command:
+// it updates sx's command wherever it already sits, collapses duplicates to one,
+// and adds the hook when none is present. A user's matcher, their sibling hooks,
+// and keys such as timeout on sx's own command are all preserved.
 func installSessionStartHook(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 	log := logger.Get()
@@ -312,6 +315,7 @@ func updateManagedCommands(item any, hookCommand, subcommand, ownMatcher string,
 	}
 
 	keptCommands := make([]any, 0, len(hooksArray))
+	holdsOurs := false
 	for _, h := range hooksArray {
 		hMap, ok := h.(map[string]any)
 		if !ok {
@@ -341,6 +345,7 @@ func updateManagedCommands(item any, hookCommand, subcommand, ownMatcher string,
 		hMap["command"] = hookCommand
 		keptCommands = append(keptCommands, hMap)
 		*placed = true
+		holdsOurs = true
 	}
 
 	if found == 0 {
@@ -353,7 +358,11 @@ func updateManagedCommands(item any, hookCommand, subcommand, ownMatcher string,
 	// Where the matcher is sx's own config rather than the user's, re-assert it:
 	// otherwise an entry carrying a stale or hand-edited matcher keeps it
 	// forever, and the hook silently fires on the wrong set of events.
-	if ownMatcher != "" && *placed {
+	//
+	// Gated on this entry actually keeping our command, not on the shared placed
+	// flag: a duplicate entry whose sx command was dropped now holds only the
+	// user's hooks, and rewriting its matcher would change when those fire.
+	if ownMatcher != "" && holdsOurs {
 		if existing, _ := hookMap["matcher"].(string); existing != ownMatcher {
 			hookMap["matcher"] = ownMatcher
 		}
@@ -414,7 +423,9 @@ func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) (f
 // user's. Unlike a SessionStart matcher, it is re-asserted on update.
 const postToolUseMatcher = "Skill|Task|SlashCommand|mcp__.*"
 
-// installUsageReportingHook installs the PostToolUse hook for usage tracking
+// installUsageReportingHook converges the PostToolUse usage-reporting hook the
+// same way installSessionStartHook does, with one difference: the matcher on this
+// hook is sx's own config, so it is re-asserted rather than preserved.
 func installUsageReportingHook(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 	log := logger.Get()

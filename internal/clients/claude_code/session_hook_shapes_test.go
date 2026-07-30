@@ -9,15 +9,15 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/clipath"
 )
 
-// settingsWith writes a .claude/settings.json containing the given SessionStart
-// entries and returns the claude dir.
-func settingsWith(t *testing.T, entries []any) string {
+// settingsWithHook writes a .claude/settings.json whose named hook array holds
+// the given entries, and returns the claude dir.
+func settingsWithHook(t *testing.T, event string, entries []any) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), ".claude")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	settings := map[string]any{"hooks": map[string]any{"SessionStart": entries}}
+	settings := map[string]any{"hooks": map[string]any{event: entries}}
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,8 @@ func settingsWith(t *testing.T, entries []any) string {
 	return dir
 }
 
-func readSessionStart(t *testing.T, claudeDir string) []any {
+// readHookArray returns the named hook array from a written settings.json.
+func readHookArray(t *testing.T, claudeDir, event string) []any {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
 	if err != nil {
@@ -39,7 +40,7 @@ func readSessionStart(t *testing.T, claudeDir string) []any {
 		t.Fatalf("settings.json is not valid JSON: %v", err)
 	}
 	hooks, _ := out["hooks"].(map[string]any)
-	entries, _ := hooks["SessionStart"].([]any)
+	entries, _ := hooks[event].([]any)
 	return entries
 }
 
@@ -182,11 +183,11 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := settingsWith(t, tc.entries)
+			dir := settingsWithHook(t, "SessionStart", tc.entries)
 			if err := installSessionStartHook(dir); err != nil {
 				t.Fatalf("installSessionStartHook: %v", err)
 			}
-			tc.assert(t, readSessionStart(t, dir))
+			tc.assert(t, readHookArray(t, dir, "SessionStart"))
 		})
 	}
 }
@@ -219,7 +220,7 @@ func TestRemoveSxHooksStripsOnlyOurCommandAndReportsIt(t *testing.T) {
 // hook reports on the wrong events forever.
 func TestInstallUsageReportingHookShapes(t *testing.T) {
 	t.Run("re-asserts sx's own matcher", func(t *testing.T) {
-		dir := settingsWithPostToolUse(t, []any{
+		dir := settingsWithHook(t, "PostToolUse", []any{
 			map[string]any{
 				"matcher": "Bash",
 				"hooks":   []any{map[string]any{"type": "command", "command": "/previous/sx report-usage --client=claude-code"}},
@@ -229,6 +230,22 @@ func TestInstallUsageReportingHookShapes(t *testing.T) {
 			t.Fatalf("installUsageReportingHook: %v", err)
 		}
 		entries := readHookArray(t, dir, "PostToolUse")
+		// The stale command must be gone and exactly one of ours left, or the
+		// matcher could be "re-asserted" on a freshly appended entry while the
+		// stale one lingers.
+		cmds := commandsIn(entries)
+		managed := 0
+		for _, c := range cmds {
+			if clipath.Managed(c, "report-usage") {
+				managed++
+			}
+			if c == "/previous/sx report-usage --client=claude-code" {
+				t.Fatalf("stale command survived: %v", cmds)
+			}
+		}
+		if managed != 1 {
+			t.Fatalf("want exactly one managed command, got %d in %v", managed, cmds)
+		}
 		for _, e := range entries {
 			m, _ := e.(map[string]any)
 			if m["matcher"] == postToolUseMatcher {
@@ -239,7 +256,7 @@ func TestInstallUsageReportingHookShapes(t *testing.T) {
 	})
 
 	t.Run("collapses duplicates and keeps a user hook", func(t *testing.T) {
-		dir := settingsWithPostToolUse(t, []any{
+		dir := settingsWithHook(t, "PostToolUse", []any{
 			map[string]any{"hooks": []any{
 				map[string]any{"type": "command", "command": "/previous/sx report-usage --client=claude-code"},
 				map[string]any{"type": "command", "command": "my-telemetry"},
@@ -269,36 +286,4 @@ func TestInstallUsageReportingHookShapes(t *testing.T) {
 			t.Fatalf("user hook was dropped: %v", cmds)
 		}
 	})
-}
-
-func settingsWithPostToolUse(t *testing.T, entries []any) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), ".claude")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	settings := map[string]any{"hooks": map[string]any{"PostToolUse": entries}}
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
-func readHookArray(t *testing.T, claudeDir, name string) []any {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-	hooks, _ := out["hooks"].(map[string]any)
-	entries, _ := hooks[name].([]any)
-	return entries
 }
