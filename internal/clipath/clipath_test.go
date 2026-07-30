@@ -370,3 +370,81 @@ func TestNeedsRepairUnquotedWindowsGUIPath(t *testing.T) {
 		t.Fatal("GUI binary at a spaced Windows path must be repaired")
 	}
 }
+
+// The bare fallback must name the platform's binary, since it is resolved by
+// the consumer's PATH.
+func TestResolveOrBareUsesPlatformBinaryName(t *testing.T) {
+	t.Setenv(EnvOverride, filepath.Join(tempRoot(t), "absent"))
+	t.Setenv("PATH", tempRoot(t))
+	stubExecutable(t, filepath.Join(tempRoot(t), "sx-app"))
+	stubInstallDirs(t, nil)
+
+	stubGOOS(t, "windows")
+	if got := ResolveOrBare(); got != "sx.exe" {
+		t.Fatalf("windows fallback = %q, want sx.exe", got)
+	}
+	stubGOOS(t, "darwin")
+	if got := ResolveOrBare(); got != "sx" {
+		t.Fatalf("posix fallback = %q, want sx", got)
+	}
+}
+
+// SX_CLI_PATH can name the binary anything; a hook written from it must still be
+// recognized as ours, or an upgrade appends a duplicate.
+func TestManagedRecognizesCustomNamedOverride(t *testing.T) {
+	stubGOOS(t, "darwin")
+	dir := tempRoot(t)
+	custom := writeFakeCLI(t, dir, "my-sx-build")
+	t.Setenv(EnvOverride, custom)
+	stubExecutable(t, filepath.Join(dir, "sx-app"))
+	stubInstallDirs(t, nil)
+
+	cmd := custom + " install --hook-mode --client=cline"
+	if !Managed(cmd, "install") {
+		t.Fatalf("hook written from SX_CLI_PATH not recognized: %s", cmd)
+	}
+	// An unrelated binary is still not ours.
+	if Managed("/usr/bin/other install --hook-mode", "install") {
+		t.Fatal("unrelated binary must not be treated as sx")
+	}
+}
+
+// shellQuote escapes embedded quotes; splitCommand has to read that back.
+func TestSplitCommandRoundTripsEscapedQuotes(t *testing.T) {
+	stubGOOS(t, "darwin")
+	weird := `/opt/my "sx" dir/sx`
+	quoted := shellQuote(weird)
+	got := splitCommand(quoted + " install --hook-mode")
+	if len(got) == 0 || got[0] != weird {
+		t.Fatalf("argv[0] = %q, want %q (from %s)", got, weird, quoted)
+	}
+	if !Managed(quoted+" install --hook-mode", "install") {
+		t.Fatalf("escaped form not recognized: %s", quoted)
+	}
+}
+
+// An argv-shaped config must not be joined and re-split: a spaced path would
+// break in the wrong place and the entry would be orphaned.
+func TestManagedArgv(t *testing.T) {
+	stubGOOS(t, "darwin")
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"bare sx", []string{"sx", "report-usage", "--client=codex"}, true},
+		{"absolute path", []string{"/opt/homebrew/bin/sx", "report-usage", "--client=codex"}, true},
+		{"path with a space", []string{"/My Apps/sx.app/Contents/Resources/sx", "report-usage"}, true},
+		{"legacy skills binary", []string{"skills", "report-usage"}, true},
+		{"wrong subcommand", []string{"sx", "audit"}, false},
+		{"someone else's notify", []string{"/usr/bin/notify-send", "hello"}, false},
+		{"empty", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ManagedArgv(tc.argv, "report-usage"); got != tc.want {
+				t.Fatalf("ManagedArgv(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}

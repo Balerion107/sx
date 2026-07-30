@@ -473,7 +473,9 @@ func (c *Client) uninstallNotifyHook(codexDir string) error {
 			}
 			parts = append(parts, s)
 		}
-		match := parts != nil && clipath.Managed(strings.Join(parts, " "), "report-usage")
+		// ManagedArgv, not Managed on a joined string: a CLI path containing a
+		// space would be re-split in the wrong place and the entry orphaned.
+		match := parts != nil && clipath.ManagedArgv(parts, "report-usage")
 		if match {
 			delete(raw, "notify")
 			return handlers.WriteCodexConfig(configPath, config, raw)

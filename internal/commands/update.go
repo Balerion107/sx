@@ -54,7 +54,8 @@ func runUpdate(cmd *cobra.Command, checkOnly bool) error {
 	// replacing the whole bundle. Overwriting it here would break the app's
 	// code signature and be reverted on the app's next update. Say so plainly
 	// rather than failing obscurely or silently doing nothing.
-	if clipath.AppManaged() && !checkOnly {
+	appManaged := clipath.AppManaged()
+	if appManaged && !checkOnly {
 		out.printErr("This sx is the copy bundled in the sx desktop app.")
 		out.printErr("Update it by updating the app — the app replaces its bundled CLI.")
 		out.printErr("To manage a CLI yourself, install one separately (Homebrew or install.sh);")
@@ -96,7 +97,13 @@ func runUpdate(cmd *cobra.Command, checkOnly bool) error {
 		}
 
 		out.printf("New version available: %s\n", latest.Version())
-		out.printf("\nRun 'sx update' to install the new version\n")
+		if appManaged {
+			// Pointing at `sx update` would be a dead end: this copy is bundled
+			// in the app and refuses to overwrite itself.
+			out.printf("\nThis sx is bundled in the sx desktop app — update the app to get it.\n")
+		} else {
+			out.printf("\nRun 'sx update' to install the new version\n")
+		}
 		return nil
 	}
 

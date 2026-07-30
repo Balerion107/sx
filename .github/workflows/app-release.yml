@@ -165,8 +165,17 @@ jobs:
           esac
           mkdir -p "$(dirname "$OUT")"
 
+          # Same stamps and stripping as the released CLI (.goreleaser.yml), so
+          # `sx --version` from the bundled copy reports a real commit and date
+          # rather than "none"/"unknown", and the binary is not needlessly larger
+          # than the one on the release page.
+          LDFLAGS="-s -w"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=${GITHUB_SHA}"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
           CGO_ENABLED=0 GOOS="$GOOS_ARG" GOARCH="$GOARCH_ARG" go build \
-            -ldflags "-X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}" \
+            -ldflags "$LDFLAGS" \
             -o "$OUT" ./cmd/sx
           ls -l "$OUT"
         env:

@@ -341,6 +341,13 @@ func (c *Client) installCronJob() error {
 		return nil
 	}
 
+	// `cron add` will not update an existing job, so a job registered by an
+	// earlier version keeps its bare-"sx" command indefinitely. Remove first;
+	// a missing job makes this a no-op and the error is deliberately ignored.
+	if out, err := exec.Command("openclaw", "cron", "remove", "sx-install").CombinedOutput(); err != nil {
+		log.Debug("no existing cron job to replace", "output", string(out))
+	}
+
 	cmd := exec.Command("openclaw", "cron", "add", "sx-install",
 		"--schedule", "*/30 * * * *",
 		"--command", clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw", "--scope", "global", "--quiet"),

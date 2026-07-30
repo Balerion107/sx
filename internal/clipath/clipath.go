@@ -57,13 +57,20 @@ var legacyBinaryNames = []string{"sx", "sx.exe", "skills", "skills.exe"}
 // Resolve returns an absolute path to an sx CLI binary that can run
 // subcommands.
 //
-// A CLI shipped with the app deliberately outranks one the user installed
-// separately. The app and its bundled CLI come from the same build, and the
-// on-disk vault format is versioned — a hook that invoked an older
-// Homebrew-installed CLI could read and write vaults the app manages with code
-// that predates the current layout. Preferring the bundled binary keeps that
-// skew forward-only and makes the app's behavior independent of machine state.
-// SX_CLI_PATH overrides this for anyone who wants their own build.
+// Precedence, and what it does and does not guarantee: the binary already
+// running wins first, then a CLI shipped with the app, then PATH. So an install
+// initiated *by the app* always names the app's own bundled CLI — which is the
+// property that matters, because the on-disk vault format is versioned and a
+// hook invoking an older separately-installed CLI could read and write vaults
+// the app manages with code predating the current layout. App-initiated skew
+// stays forward-only.
+//
+// It is not a global guarantee. Running your own `sx install` from a terminal
+// bakes *that* CLI's path in, which is the least surprising outcome — the CLI
+// you invoked is the one that gets recorded — but it does mean alternating
+// between a terminal install and an app install rewrites the stored path each
+// way. Both paths work; only the version they pin differs. SX_CLI_PATH
+// overrides all of it.
 //
 // This only decides what goes into hook and MCP configuration. What happens
 // when the user types "sx" in a terminal is their shell's PATH, untouched.
@@ -168,7 +175,7 @@ func isExecutableFile(path string) bool {
 // caller can log the degradation and still write a hook that works for anyone
 // with sx on PATH.
 func Command(args ...string) (string, error) {
-	parts := append([]string{"sx"}, args...)
+	parts := append([]string{binaryName()}, args...)
 	fallback := strings.Join(parts, " ")
 
 	path, err := Resolve()
@@ -306,7 +313,7 @@ func ResolveOrBare() string {
 	if path, err := Resolve(); err == nil {
 		return path
 	}
-	return "sx"
+	return binaryName()
 }
 
 // shellQuote quotes a path for embedding in a shell command string, and only
@@ -344,7 +351,7 @@ func Managed(cmd string, subcommands ...string) bool {
 		return false
 	}
 	base := normalizedBase(fields[0])
-	if !slices.Contains(legacyBinaryNames, base) {
+	if !slices.Contains(legacyBinaryNames, base) && !isResolvedCLI(fields[0]) {
 		return false
 	}
 	rest := strings.Join(fields[1:], " ")
@@ -362,12 +369,57 @@ func Managed(cmd string, subcommands ...string) bool {
 	return false
 }
 
+// isResolvedCLI reports whether argv0 is the CLI this process would resolve to
+// right now, regardless of what it is called. SX_CLI_PATH can point at a binary
+// with any name, and without this a hook sx wrote from such an override would
+// not be recognized as its own — so an upgrade would append a duplicate.
+func isResolvedCLI(argv0 string) bool {
+	if argv0 == "" {
+		return false
+	}
+	resolved, err := Resolve()
+	if err != nil {
+		return false
+	}
+	a, b := filepath.Clean(argv0), filepath.Clean(resolved)
+	if goos == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 // normalizedBase returns argv[0]'s lowercased file name with separators
 // normalized, so a Windows-style path in a config is recognized on any host:
 // filepath.Base does not treat "\" as a separator off Windows, and these config
 // files get synced between machines.
 func normalizedBase(argv0 string) string {
 	return strings.ToLower(path.Base(filepath.ToSlash(strings.ReplaceAll(argv0, `\`, "/"))))
+}
+
+// ManagedArgv is Managed for configs that store a command as an argument array
+// rather than a shell string — Codex's config.toml "notify", for instance.
+//
+// Joining such an array with spaces and handing it to Managed is wrong: a CLI
+// path containing a space would be re-split in the wrong place, and the entry
+// would go unrecognized on uninstall.
+func ManagedArgv(argv []string, subcommands ...string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := normalizedBase(argv[0])
+	if !slices.Contains(legacyBinaryNames, base) && !isResolvedCLI(argv[0]) {
+		return false
+	}
+	rest := strings.Join(argv[1:], " ")
+	for _, sub := range subcommands {
+		if sub = strings.TrimSpace(sub); sub == "" {
+			continue
+		}
+		if rest == sub || strings.HasPrefix(rest, sub+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 // splitCommand splits on whitespace while keeping a quoted argv[0] intact,
@@ -378,11 +430,27 @@ func splitCommand(cmd string) []string {
 		return nil
 	}
 	if cmd[0] == '"' {
-		if end := strings.Index(cmd[1:], `"`); end >= 0 {
-			head := strings.ReplaceAll(cmd[1:end+1], `\"`, `"`)
-			rest := strings.Fields(cmd[end+2:])
-			return append([]string{head}, rest...)
+		// Find the closing quote, skipping the escaped ones shellQuote emits.
+		// strings.Index would stop at the first `\"` and cut argv[0] in half.
+		var head strings.Builder
+		escaped := false
+		for i := 1; i < len(cmd); i++ {
+			c := cmd[i]
+			if escaped {
+				head.WriteByte(c)
+				escaped = false
+				continue
+			}
+			switch c {
+			case '\\':
+				escaped = true
+			case '"':
+				return append([]string{head.String()}, strings.Fields(cmd[i+1:])...)
+			default:
+				head.WriteByte(c)
+			}
 		}
+		// Unterminated quote: fall through to whitespace splitting.
 	}
 	return strings.Fields(cmd)
 }

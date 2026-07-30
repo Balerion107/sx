@@ -333,7 +333,7 @@ func checkHooksInstalled(clientID, clientDir string) bool {
 			return false
 		}
 		content := string(data)
-		return strings.Contains(content, "sx install") || strings.Contains(content, "skills install")
+		return hookMarkerPresent(content)
 
 	case clients.ClientIDCursor:
 		// Check hooks.json for sx hooks (or legacy skills hooks)
@@ -343,7 +343,7 @@ func checkHooksInstalled(clientID, clientDir string) bool {
 			return false
 		}
 		content := string(data)
-		return strings.Contains(content, "sx install") || strings.Contains(content, "skills install")
+		return hookMarkerPresent(content)
 
 	case clients.ClientIDGemini:
 		// Check settings.json for sx hooks
@@ -353,7 +353,7 @@ func checkHooksInstalled(clientID, clientDir string) bool {
 			return false
 		}
 		content := string(data)
-		return strings.Contains(content, "sx install") || strings.Contains(content, "sx-session")
+		return hookMarkerPresent(content) || strings.Contains(content, "sx-session")
 
 	case clients.ClientIDCodex:
 		// Check config.toml for sx notify hook with report-usage command
@@ -382,7 +382,7 @@ func checkHooksInstalled(clientID, clientDir string) bool {
 					return false
 				}
 				content := string(data)
-				return strings.Contains(content, "sx install") || strings.Contains(content, "skills install")
+				return hookMarkerPresent(content)
 			}
 			parent := filepath.Dir(dir)
 			if parent == dir {
@@ -729,4 +729,17 @@ func printText(output ConfigOutput, showAll bool) error {
 	}
 
 	return nil
+}
+
+// hookMarkerPresent reports whether a client config contains an sx-installed
+// hook, by looking for the flag that identifies one rather than for argv[0].
+//
+// The old check was `Contains(content, "sx install")`, which happened to keep
+// working on POSIX once hooks carried an absolute path — ".../bin/sx install"
+// still contains it — but not on Windows, where argv[0] becomes "...\sx.exe" and
+// the substring disappears. "install --hook-mode" is present regardless of how
+// the CLI is named or where it lives, and the pre-rename "skills" form wrote the
+// same flag.
+func hookMarkerPresent(content string) bool {
+	return strings.Contains(content, "install --hook-mode")
 }
