@@ -168,6 +168,31 @@ func TestInstallSessionStartHookEntryShapes(t *testing.T) {
 			},
 		},
 		{
+			name: "a shared entry keeps its own matcher",
+			entries: []any{
+				map[string]any{
+					"matcher": "startup",
+					"hooks": []any{
+						map[string]any{"type": "command", "command": "/previous/sx install --hook-mode --client=claude-code"},
+						map[string]any{"type": "command", "command": "my-linter"},
+					},
+				},
+			},
+			assert: func(t *testing.T, entries []any) {
+				assertUpdated(t, entries)
+				// The user's hook must still be under their matcher, and sx's
+				// command must have moved out rather than dragging it along.
+				for _, e := range entries {
+					m, _ := e.(map[string]any)
+					cmds := commandsIn([]any{m})
+					if len(cmds) == 1 && cmds[0] == "my-linter" && m["matcher"] == "startup" {
+						return
+					}
+				}
+				t.Fatalf("user hook lost its matcher or is still sharing with sx: %v", entries)
+			},
+		},
+		{
 			name: "duplicates collapse to one",
 			entries: []any{
 				map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "sx install --hook-mode --client=claude-code"}}},
@@ -286,4 +311,26 @@ func TestInstallUsageReportingHookShapes(t *testing.T) {
 			t.Fatalf("user hook was dropped: %v", cmds)
 		}
 	})
+}
+
+// A stale matcher on sx's own hook must be corrected even when the command is
+// already current — the early return used to discard that.
+func TestPostToolUseCorrectsStaleMatcherWithCurrentCommand(t *testing.T) {
+	current := clipath.CommandOrBare("report-usage", "--client=claude-code")
+	dir := settingsWithHook(t, "PostToolUse", []any{
+		map[string]any{
+			"matcher": "Bash",
+			"hooks":   []any{map[string]any{"type": "command", "command": current}},
+		},
+	})
+	if err := installUsageReportingHook(dir); err != nil {
+		t.Fatalf("installUsageReportingHook: %v", err)
+	}
+	for _, e := range readHookArray(t, dir, "PostToolUse") {
+		m, _ := e.(map[string]any)
+		if m["matcher"] == postToolUseMatcher {
+			return
+		}
+	}
+	t.Fatal("a stale matcher on sx's own hook was left uncorrected")
 }
