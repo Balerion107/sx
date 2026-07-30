@@ -132,6 +132,64 @@ jobs:
           CGO_ENABLED: 1
           RELEASE_TAG: ${{ inputs.release_tag }}
 
+      # The app writes client hooks and MCP entries that invoke the sx CLI
+      # later, in environments it does not control. Ship the matching CLI inside
+      # the app so those configs can name an absolute path that exists on an
+      # app-only machine — see internal/clipath.
+      #
+      # Built from the same commit and stamped with the same version as the app,
+      # deliberately: the on-disk vault format is versioned, so a mismatched
+      # pair could migrate a vault with the wrong code.
+      - name: Build bundled CLI
+        shell: bash
+        run: |
+          TAG="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          GOOS_ARG=""
+          GOARCH_ARG=""
+          case "${{ matrix.platform }}" in
+            darwin/*)  GOOS_ARG=darwin  ;;
+            windows/*) GOOS_ARG=windows ;;
+            linux/*)   GOOS_ARG=linux   ;;
+          esac
+          case "${{ matrix.platform }}" in
+            */arm64) GOARCH_ARG=arm64 ;;
+            */amd64) GOARCH_ARG=amd64 ;;
+          esac
+
+          # macOS keeps helper executables in Contents/Resources; Windows and
+          # Linux ship the CLI beside the app binary. clipath knows both layouts.
+          case "$GOOS_ARG" in
+            darwin)  OUT="app/build/bin/sx.app/Contents/Resources/sx" ;;
+            windows) OUT="app/build/bin/sx.exe" ;;
+            *)       OUT="app/build/bin/sx" ;;
+          esac
+          mkdir -p "$(dirname "$OUT")"
+
+          # Same stamps and stripping as the released CLI (.goreleaser.yml), so
+          # `sx --version` from the bundled copy reports a real commit and date
+          # rather than "none"/"unknown", and the binary is not needlessly larger
+          # than the one on the release page.
+          LDFLAGS="-s -w"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Version=${TAG#v}"
+          # HEAD, not GITHUB_SHA. On a backfill dispatch the checkout is the
+          # release tag while GITHUB_SHA is the dispatching branch, so GITHUB_SHA
+          # would stamp a commit that is not the one being built — and the date
+          # lookup for it could fail and silently fall back to wall clock.
+          BUILD_COMMIT="$(git rev-parse HEAD)"
+          # The commit's own date rather than `date -u`: the six matrix jobs run
+          # at different times, and a wall-clock stamp makes six builds of one
+          # commit report six different dates.
+          BUILD_DATE="$(git show -s --format=%cI HEAD)"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Commit=${BUILD_COMMIT}"
+          LDFLAGS="$LDFLAGS -X github.com/sleuth-io/sx/v2/internal/buildinfo.Date=${BUILD_DATE}"
+
+          CGO_ENABLED=0 GOOS="$GOOS_ARG" GOARCH="$GOARCH_ARG" go build \
+            -ldflags "$LDFLAGS" \
+            -o "$OUT" ./cmd/sx
+          ls -l "$OUT"
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+
       # Sign + notarize + staple when the secrets exist (Developer ID),
       # ad-hoc sign with a clear -unsigned suffix when they don't — so
       # forks and pre-enrollment builds keep working.

@@ -13,6 +13,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/kiro/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
@@ -296,16 +297,25 @@ func (c *Client) registerSkillsMCPServer() error {
 		config.MCPServers = make(map[string]any)
 	}
 
-	if _, exists := config.MCPServers["skills"]; exists {
-		// Already configured, don't overwrite
-		return nil
+	// Leave an existing entry alone unless sx wrote it and it can no longer
+	// work. Anyone who installed from the desktop app before this fix has an
+	// entry naming the GUI binary, which the client will launch and then wait on
+	// for MCP traffic that never comes — an unconditional skip here would leave
+	// them broken forever, since the fix below is never reached. A hand-written
+	// "skills" entry is still preserved.
+	if existing, exists := config.MCPServers["skills"]; exists {
+		if !clipath.MCPEntryNeedsRewrite(existing) {
+			return nil
+		}
 	}
 
 	// Get path to sx binary
-	sxBinary, err := os.Executable()
-	if err != nil {
-		return err
-	}
+	// The MCP entry is executed later by the client, so it needs the CLI, not
+	// whichever binary happens to be running now — os.Executable() is the GUI
+	// binary when this runs from the desktop app, and that has no subcommands.
+	// Falls back to a bare "sx" (resolved by the client's PATH) rather than
+	// refusing to register the server at all.
+	sxBinary := clipath.ResolveOrBare()
 
 	// Add skills MCP server entry
 	config.MCPServers["skills"] = map[string]any{

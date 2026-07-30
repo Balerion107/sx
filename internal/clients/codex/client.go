@@ -13,6 +13,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/codex/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
@@ -386,8 +387,9 @@ func (c *Client) installNotifyHook(codexDir string) error {
 		return fmt.Errorf("failed to read config.toml: %w", err)
 	}
 
-	// Add notify command for analytics
-	notifyCmd := []string{"sx", "report-usage", "--client=codex"}
+	// Add notify command for analytics. An argv array, not a shell string, so
+	// the resolved path goes in unquoted.
+	notifyCmd := []string{clipath.ResolveOrBare(), "report-usage", "--client=codex"}
 
 	// Check if already set with exact match
 	if existing, ok := raw["notify"].([]any); ok && len(existing) == len(notifyCmd) {
@@ -458,16 +460,22 @@ func (c *Client) uninstallNotifyHook(codexDir string) error {
 		return fmt.Errorf("failed to read config.toml: %w", err)
 	}
 
-	// Only remove if it matches our sx command
-	notifyCmd := []string{"sx", "report-usage", "--client=codex"}
-	if existing, ok := raw["notify"].([]any); ok && len(existing) == len(notifyCmd) {
-		match := true
-		for i, item := range existing {
-			if s, ok := item.(string); !ok || s != notifyCmd[i] {
-				match = false
+	// Remove any sx-written notify array, not only the one this build would
+	// produce. An entry written by an older version carries a bare "sx" or a
+	// different absolute path, and an exact comparison would orphan it.
+	if existing, ok := raw["notify"].([]any); ok && len(existing) == 3 {
+		parts := make([]string, 0, len(existing))
+		for _, item := range existing {
+			s, ok := item.(string)
+			if !ok {
+				parts = nil
 				break
 			}
+			parts = append(parts, s)
 		}
+		// ManagedArgv, not Managed on a joined string: a CLI path containing a
+		// space would be re-split in the wrong place and the entry orphaned.
+		match := parts != nil && clipath.ManagedArgv(parts, "report-usage")
 		if match {
 			delete(raw, "notify")
 			return handlers.WriteCodexConfig(configPath, config, raw)

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients/github_copilot/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
@@ -86,10 +86,18 @@ func installCopilotHooks(repoRoot string, opts []bootstrap.Option) error {
 
 	// Install sessionStart hook (if enabled)
 	if bootstrap.ContainsKey(opts, bootstrap.SessionHookKey) {
+		// Bare "sx" on purpose. Unlike the user-scoped configs, this file is
+		// .github/hooks/sx.json inside the user's repository — workspace-scoped,
+		// not gitignored by sx, and typically committed. A machine-absolute path
+		// here breaks every other developer and CI, the same reasoning
+		// docs/clients.md gives for keeping packaged servers out of
+		// .github/mcp.json. clipath.Managed matches both forms, so detection,
+		// upgrade, and removal are unaffected.
 		installHook := "sx install --hook-mode --client=github-copilot"
 		if !hasHookWithCommand(config.Hooks["sessionStart"], installHook) {
-			// Remove old hooks: "sx install" (old format) and "skills install" (pre-rename, tool was called "skills")
-			config.Hooks["sessionStart"] = removeHooksWithPrefix(config.Hooks["sessionStart"], "sx install", "skills install")
+			// Replace any prior sx-written install hook, including the legacy
+			// bare-"sx" and pre-rename "skills" forms.
+			config.Hooks["sessionStart"] = removeHooksWithPrefix(config.Hooks["sessionStart"], "install")
 			config.Hooks["sessionStart"] = append(config.Hooks["sessionStart"], CopilotHookEntry{
 				Type:       "command",
 				Bash:       installHook,
@@ -102,10 +110,12 @@ func installCopilotHooks(repoRoot string, opts []bootstrap.Option) error {
 
 	// Install postToolUse hook (if enabled)
 	if bootstrap.ContainsKey(opts, bootstrap.AnalyticsHookKey) {
+		// Bare "sx" for the same reason as the install hook above: this file is
+		// committed to the user's repository.
 		reportHook := "sx report-usage --client=github-copilot"
 		if !hasHookWithCommand(config.Hooks["postToolUse"], reportHook) {
 			// Remove old hooks: "sx report-usage" (old format) and "skills report-usage" (pre-rename, tool was called "skills")
-			config.Hooks["postToolUse"] = removeHooksWithPrefix(config.Hooks["postToolUse"], "sx report-usage", "skills report-usage")
+			config.Hooks["postToolUse"] = removeHooksWithPrefix(config.Hooks["postToolUse"], "report-usage")
 			config.Hooks["postToolUse"] = append(config.Hooks["postToolUse"], CopilotHookEntry{
 				Type:       "command",
 				Bash:       reportHook,
@@ -272,7 +282,7 @@ func uninstallCopilotHooks(hookFilePath string, uninstallSession, uninstallAnaly
 
 	if uninstallSession {
 		original := len(config.Hooks["sessionStart"])
-		config.Hooks["sessionStart"] = removeHooksWithPrefix(config.Hooks["sessionStart"], "sx install", "skills install")
+		config.Hooks["sessionStart"] = removeHooksWithPrefix(config.Hooks["sessionStart"], "install")
 		if len(config.Hooks["sessionStart"]) != original {
 			modified = true
 			log.Info("hook removed", "hook", "sessionStart")
@@ -284,7 +294,7 @@ func uninstallCopilotHooks(hookFilePath string, uninstallSession, uninstallAnaly
 
 	if uninstallAnalytics {
 		original := len(config.Hooks["postToolUse"])
-		config.Hooks["postToolUse"] = removeHooksWithPrefix(config.Hooks["postToolUse"], "sx report-usage", "skills report-usage")
+		config.Hooks["postToolUse"] = removeHooksWithPrefix(config.Hooks["postToolUse"], "report-usage")
 		if len(config.Hooks["postToolUse"]) != original {
 			modified = true
 			log.Info("hook removed", "hook", "postToolUse")
@@ -318,16 +328,12 @@ func hasHookWithCommand(hooks []CopilotHookEntry, command string) bool {
 }
 
 // removeHooksWithPrefix removes hooks whose bash command starts with any of the given prefixes
-func removeHooksWithPrefix(hooks []CopilotHookEntry, prefixes ...string) []CopilotHookEntry {
+// removeHooksWithPrefix drops hooks that invoke sx with any of the given
+// subcommands, matching both the legacy bare-"sx" form and absolute paths.
+func removeHooksWithPrefix(hooks []CopilotHookEntry, subcommands ...string) []CopilotHookEntry {
 	var filtered []CopilotHookEntry
 	for _, hook := range hooks {
-		shouldRemove := false
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(hook.Bash, prefix) {
-				shouldRemove = true
-				break
-			}
-		}
+		shouldRemove := clipath.Managed(hook.Bash, subcommands...)
 		if !shouldRemove {
 			filtered = append(filtered, hook)
 		}

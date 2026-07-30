@@ -47,6 +47,10 @@ Two front doors, one library. The app and the CLI share a single configuration, 
 - **The app** — for everyone. Create and edit skills in a built-in editor (or drag files in), publish to your team, install into your AI tools with one click. No terminal anywhere. [Download for macOS, Windows, or Linux](https://github.com/sleuth-io/sx/releases) (the `sx-app-*` artifacts).
 - **The CLI** — for engineers and automation. The same operations, scriptable: pin it in CI, wire it into hooks, drive it from your own tools. Install below.
 
+The app ships the matching CLI inside itself, because some of what it installs — session hooks, MCP server entries — is configuration your AI client executes later and needs a real binary to run. So installing only the app is a complete setup for the hooks that live in your home directory; you do not also need to install the CLI for those to work. Two exceptions are deliberate: hook files that get committed to a repository (GitHub Copilot's `.github/hooks/sx.json`, Kiro's `.kiro/hooks/`) keep a plain `sx` so they are not tied to one machine, and those resolve it from your PATH. Install the CLI separately if you rely on those, or when you just want `sx` in your own terminal — see [docs/clients.md](docs/clients.md#how-hooks-reference-the-sx-cli).
+
+The app keeps its bundled CLI current: an app update replaces it along with the rest of the app. That bundled copy does not self-update, since rewriting a file inside a signed app bundle would break it. A separately installed CLI updates itself as usual, independently of the app.
+
 ## Quickstart
 
 **Install via Homebrew (macOS/Linux):**

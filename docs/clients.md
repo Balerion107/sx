@@ -26,6 +26,32 @@ Many AI tools ship in two forms: a **desktop IDE** and a **CLI**. These often ha
 | Kiro           | CLI+IDE | Full support. See [Kiro-specific docs](kiro.md) for hook setup.                                |
 | OpenCode       | CLI     | Skills, commands, agents, rules, MCP servers. Config at `~/.config/opencode/` (or `.opencode/` per-repo). Rules are written to `rules/<name>.md` and registered via the `instructions` array in `opencode.json`. |
 
+## How hooks reference the sx CLI
+
+Hooks and MCP entries are configuration that the client executes later, so they
+have to name a binary. Which form sx writes depends on where the config lives,
+not on which client it is:
+
+- **User-scoped config** (`~/.claude/settings.json`, `~/.cursor/hooks.json`,
+  `~/.gemini/settings.json`, `~/.codex/config.toml`, `~/.openclaw/hooks/`,
+  Cline's hooks directory, Cursor and Kiro MCP entries) gets an **absolute path**
+  to the CLI. This is what makes an app-only install work: the desktop app ships
+  its own CLI, and a GUI client launched from Finder or a Dock inherits launchd's
+  minimal PATH, where `~/.local/bin` is usually invisible.
+- **Repo-scoped config** that gets committed keeps a bare **`sx`**, resolved from
+  PATH at run time. A machine-absolute path in a shared file breaks every other
+  developer and CI. This covers Copilot's `.github/hooks/sx.json` and Kiro's
+  `{repoRoot}/.kiro/agents/` and `.kiro/hooks/`, and is the same reasoning that
+  keeps packaged MCP servers out of `.github/mcp.json` (above).
+
+The practical consequence: **an app-only install is complete for user-scoped
+hooks, but the repo-scoped files above still need `sx` on PATH.** Install the CLI
+separately (Homebrew or `install.sh`) if you rely on the Copilot or Kiro
+repo-committed hooks.
+
+`SX_CLI_PATH` overrides the resolved path everywhere. Detection accepts both
+forms, so upgrading between them replaces a hook rather than duplicating it.
+
 ## Web clients (cloud relay)
 
 claude.ai and chatgpt.com can't read your filesystem, so sx exposes the vault as a custom MCP connector through a relay hosted at skills.new. The relay forwards JSON-RPC over a WebSocket your local `sx cloud serve` process opens — vault content stays on your machine.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/cursor"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 )
 
 func init() {
@@ -601,7 +602,9 @@ prompt-file = "SKILL.md"
 	foundAutoInstallHook := false
 	for _, hook := range beforeSubmitHooks {
 		if hookMap, ok := hook.(map[string]any); ok {
-			if cmd, ok := hookMap["command"].(string); ok && strings.HasPrefix(cmd, "sx install") {
+			// The hook now carries an absolute CLI path, so assert with the same
+			// predicate production uses rather than a bare-"sx" prefix.
+			if cmd, ok := hookMap["command"].(string); ok && clipath.Managed(cmd, "install") {
 				foundAutoInstallHook = true
 				break
 			}

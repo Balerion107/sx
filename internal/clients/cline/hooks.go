@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/utils"
 )
@@ -46,7 +47,7 @@ func installSessionHook() error {
 	}
 
 	hookPath := filepath.Join(hooksDir, HookEventTaskStart)
-	hookCommand := "sx install --hook-mode --client=cline"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=cline")
 
 	// Check if hook already exists and is managed by sx
 	if existingContent, err := os.ReadFile(hookPath); err == nil {
@@ -91,7 +92,7 @@ func installAnalyticsHook() error {
 	}
 
 	hookPath := filepath.Join(hooksDir, HookEventPostToolUse)
-	hookCommand := "sx report-usage --client=cline"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=cline")
 
 	// Check if hook already exists and is managed by sx
 	if existingContent, err := os.ReadFile(hookPath); err == nil {
@@ -183,13 +184,24 @@ func uninstallAnalyticsHook() error {
 	return nil
 }
 
-// generateHookScript creates the hook script content for the given command
+// generateHookScript creates the hook script content for the given command.
 func generateHookScript(command string) string {
-	if runtime.GOOS == "windows" {
-		// PowerShell script for Windows
+	return generateHookScriptFor(runtime.GOOS, command)
+}
+
+// generateHookScriptFor is generateHookScript with the OS as a parameter, so the
+// Windows body can be asserted from any host.
+func generateHookScriptFor(goos, command string) string {
+	if goos == "windows" {
+		// PowerShell. The command is prefixed with the call operator: an
+		// absolute CLI path containing a space arrives quoted, and PowerShell
+		// parses a leading double-quoted token as a string *expression* — the
+		// line would evaluate to a string and then choke on the next token
+		// instead of running anything. "&" forces command invocation, and is
+		// harmless for an unquoted command too.
 		return fmt.Sprintf(`%s
 # Cline hook script - do not edit manually
-%s
+& %s
 `, sxHookMarker, command)
 	}
 

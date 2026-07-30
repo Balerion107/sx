@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
@@ -15,6 +14,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/cursor/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/handlers/dirasset"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/logger"
@@ -357,16 +357,25 @@ func (c *Client) registerSkillsMCPServer() error {
 		config.MCPServers = make(map[string]any)
 	}
 
-	if _, exists := config.MCPServers["skills"]; exists {
-		// Already configured, don't overwrite
-		return nil
+	// Leave an existing entry alone unless sx wrote it and it can no longer
+	// work. Anyone who installed from the desktop app before this fix has an
+	// entry naming the GUI binary, which the client will launch and then wait on
+	// for MCP traffic that never comes — an unconditional skip here would leave
+	// them broken forever, since the fix below is never reached. A hand-written
+	// "skills" entry is still preserved.
+	if existing, exists := config.MCPServers["skills"]; exists {
+		if !clipath.MCPEntryNeedsRewrite(existing) {
+			return nil
+		}
 	}
 
 	// Get path to skills binary
-	skillsBinary, err := os.Executable()
-	if err != nil {
-		return err
-	}
+	// The MCP entry is executed later by the client, so it needs the CLI, not
+	// whichever binary happens to be running now — os.Executable() is the GUI
+	// binary when this runs from the desktop app, and that has no subcommands.
+	// Falls back to a bare "sx" (resolved by the client's PATH) rather than
+	// refusing to register the server at all.
+	skillsBinary := clipath.ResolveOrBare()
 
 	// Add skills MCP server entry
 	config.MCPServers["skills"] = map[string]any{
@@ -653,7 +662,7 @@ func (c *Client) uninstallBeforeSubmitPromptHook() error {
 			filtered = append(filtered, hook)
 			continue
 		}
-		if !strings.HasPrefix(cmd, "sx install") && !strings.HasPrefix(cmd, "skills install") {
+		if !clipath.Managed(cmd, "install") {
 			filtered = append(filtered, hook)
 		}
 	}
@@ -694,44 +703,48 @@ func (c *Client) installBeforeSubmitPromptHook() error {
 		return fmt.Errorf("failed to read hooks.json: %w", err)
 	}
 
-	hookCommand := "sx install --hook-mode --client=cursor"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=cursor")
 
-	// First, check if exact hook command already exists
-	exactMatch := false
-	var oldHookRef map[string]any
-	if hooks, ok := config.Hooks["beforeSubmitPrompt"]; ok {
-		for _, hook := range hooks {
-			if cmd, ok := hook["command"].(string); ok {
-				if cmd == hookCommand {
-					exactMatch = true
-					break
-				}
-				if strings.HasPrefix(cmd, "sx install") || strings.HasPrefix(cmd, "skills install") {
-					oldHookRef = hook // Remember for updating
-				}
+	// Collapse to exactly one managed hook rather than tracking a single
+	// "old" entry to rewrite. Several can accumulate — an absolute path goes
+	// stale when the app moves, and older versions wrote a bare "sx" — and
+	// rewriting only one of them leaves the rest behind as duplicates, which
+	// run the install repeatedly on every prompt.
+	existing := config.Hooks["beforeSubmitPrompt"]
+	kept := make([]map[string]any, 0, len(existing))
+	managedFound := 0
+	upToDate := false
+	for _, hook := range existing {
+		cmd, ok := hook["command"].(string)
+		// Byte-equality is checked independently of Managed. If Managed ever has
+		// a false negative for a command we wrote, matching on the exact string
+		// still collapses it — otherwise every install would append another copy
+		// of a hook it failed to recognize, without bound.
+		if ok && (cmd == hookCommand || clipath.Managed(cmd, "install")) {
+			managedFound++
+			if cmd == hookCommand {
+				upToDate = true
 			}
+			continue
 		}
+		kept = append(kept, hook)
 	}
 
-	// Already have exact match, nothing to do
-	if exactMatch {
+	// Nothing to do only when there was exactly one and it is already current.
+	if upToDate && managedFound == 1 {
 		return nil
 	}
 
 	// Get current working directory for context logging
 	cwd, _ := os.Getwd()
 
-	// Update old hook if found, otherwise add new
-	if oldHookRef != nil {
-		oldHookRef["command"] = hookCommand
-		log.Info("hook updated", "hook", "beforeSubmitPrompt", "command", hookCommand, "cwd", cwd)
+	config.Hooks["beforeSubmitPrompt"] = append(kept, map[string]any{
+		"command": hookCommand,
+	})
+	if managedFound > 0 {
+		log.Info("hook updated", "hook", "beforeSubmitPrompt", "command", hookCommand,
+			"replaced", managedFound, "cwd", cwd)
 	} else {
-		if config.Hooks["beforeSubmitPrompt"] == nil {
-			config.Hooks["beforeSubmitPrompt"] = []map[string]any{}
-		}
-		config.Hooks["beforeSubmitPrompt"] = append(config.Hooks["beforeSubmitPrompt"], map[string]any{
-			"command": hookCommand,
-		})
 		log.Info("hook installed", "hook", "beforeSubmitPrompt", "command", hookCommand, "cwd", cwd)
 	}
 
@@ -758,7 +771,7 @@ func (c *Client) installPostToolUseHook() error {
 		return fmt.Errorf("failed to read hooks.json: %w", err)
 	}
 
-	hookCommand := "sx report-usage --client=cursor"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=cursor")
 
 	// Check if exact hook command already exists
 	if hooks, ok := config.Hooks["postToolUse"]; ok {
@@ -779,7 +792,7 @@ func (c *Client) installPostToolUseHook() error {
 				filtered = append(filtered, hook)
 				continue
 			}
-			if !strings.HasPrefix(cmd, "sx report-usage") && !strings.HasPrefix(cmd, "skills report-usage") {
+			if !clipath.Managed(cmd, "report-usage") {
 				filtered = append(filtered, hook)
 			}
 		}
@@ -834,7 +847,7 @@ func (c *Client) uninstallPostToolUseHook() error {
 			filtered = append(filtered, hook)
 			continue
 		}
-		if !strings.HasPrefix(cmd, "sx report-usage") && !strings.HasPrefix(cmd, "skills report-usage") {
+		if !clipath.Managed(cmd, "report-usage") {
 			filtered = append(filtered, hook)
 		}
 	}

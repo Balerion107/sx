@@ -2,6 +2,7 @@ package openclaw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/openclaw/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
@@ -270,7 +272,7 @@ func (c *Client) InstallBootstrap(ctx context.Context, opts []bootstrap.Option) 
 		if err := c.installSessionHook(openclawDir); err != nil {
 			return err
 		}
-		if err := c.installCronJob(); err != nil {
+		if err := c.installCronJob(openclawDir); err != nil {
 			return err
 		}
 	}
@@ -302,12 +304,15 @@ skills are up to date.
 		return fmt.Errorf("failed to write HOOK.md: %w", err)
 	}
 
-	// Write index.ts handler
-	indexTS := `import { execSync } from "child_process";
+	// Write index.ts handler. The command becomes a TypeScript string literal, so
+	// it needs JSON escaping — shellQuote is the wrong quoter for source code, and
+	// an unescaped Windows path would turn its separators into TS escapes.
+	installCmd, _ := json.Marshal(clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw"))
+	indexTS := fmt.Sprintf(`import { execSync } from "child_process";
 
 export default async function handler() {
   try {
-    execSync("sx install --hook-mode --client=openclaw", {
+    execSync(%s, {
       stdio: "inherit",
       timeout: 30000,
     });
@@ -316,7 +321,7 @@ export default async function handler() {
     console.error("[sx] install hook failed:", error);
   }
 }
-`
+`, installCmd)
 	indexTSPath := filepath.Join(hookDir, "index.ts")
 	if err := os.WriteFile(indexTSPath, []byte(indexTS), 0644); err != nil {
 		return fmt.Errorf("failed to write index.ts: %w", err)
@@ -327,7 +332,7 @@ export default async function handler() {
 }
 
 // installCronJob registers a cron job via openclaw CLI for periodic updates
-func (c *Client) installCronJob() error {
+func (c *Client) installCronJob(openclawDir string) error {
 	log := logger.Get()
 
 	// Check if openclaw CLI is available
@@ -336,15 +341,61 @@ func (c *Client) installCronJob() error {
 		return nil
 	}
 
-	cmd := exec.Command("openclaw", "cron", "add", "sx-install",
-		"--schedule", "*/30 * * * *",
-		"--command", "sx install --hook-mode --client=openclaw --scope global --quiet",
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Debug("failed to register cron job", "error", err, "output", string(output))
-		// Non-fatal: cron is a nice-to-have, the session hook is primary
-	} else {
+	command := clipath.CommandOrBare("install", "--hook-mode", "--client=openclaw", "--scope", "global", "--quiet")
+	add := func() ([]byte, error) {
+		return exec.Command("openclaw", "cron", "add", "sx-install",
+			"--schedule", "*/30 * * * *",
+			"--command", command,
+		).CombinedOutput()
+	}
+
+	// The marker records what was last registered. It is consulted only after an
+	// add has been refused — never before — because it describes intent, not
+	// state: a job removed out of band still matches the marker, and skipping on
+	// that basis would leave no job at all. Attempting the add first makes the
+	// missing-job case self-healing.
+	markerPath := filepath.Join(openclawDir, handlers.DirHooks, "sx-install", ".cron-command")
+	recordMarker := func() {
+		if err := os.WriteFile(markerPath, []byte(command+"\n"), 0644); err != nil {
+			log.Debug("failed to record cron command marker", "error", err)
+		}
+	}
+
+	// Add first. `cron add` will not update an existing job, so a job registered
+	// by an earlier version keeps its old command — but removing up front would
+	// leave no job at all if the add then failed. Only replace once the plain add
+	// has been refused.
+	output, err := add()
+	if err == nil {
 		log.Info("cron job registered", "name", "sx-install", "schedule", "*/30 * * * *")
+		recordMarker()
+		return nil
+	}
+
+	// The add was refused, so a job exists. Leave it alone when it already
+	// carries this command: `openclaw cron` has no update verb, so changing one
+	// means remove-then-add, and doing that on every install would destroy and
+	// recreate a working job for no reason.
+	if prev, readErr := os.ReadFile(markerPath); readErr == nil && strings.TrimSpace(string(prev)) == command {
+		log.Debug("cron job already current", "name", "sx-install")
+		return nil
+	}
+
+	if out, rmErr := exec.Command("openclaw", "cron", "remove", "sx-install").CombinedOutput(); rmErr != nil {
+		// Nothing to replace, so the original add failure stands.
+		log.Debug("failed to register cron job", "error", err, "output", string(output), "remove_output", string(out))
+		return nil
+	}
+
+	if output, err := add(); err != nil {
+		// The job existed, is now gone, and could not be recreated — that is a
+		// real regression in behavior rather than a nice-to-have that never
+		// happened, so it warns rather than whispering at debug.
+		log.Warn("replaced cron job could not be recreated", "name", "sx-install",
+			"error", err, "output", string(output))
+	} else {
+		log.Info("cron job updated", "name", "sx-install", "schedule", "*/30 * * * *")
+		recordMarker()
 	}
 	return nil
 }

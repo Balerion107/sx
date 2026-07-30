@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients/claude_code/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/utils"
 )
@@ -83,7 +83,10 @@ func installMCPServerFromConfig(claudeDir string, config *bootstrap.MCPServerCon
 	return nil
 }
 
-// installSessionStartHook installs the SessionStart hook for auto-updating assets
+// installSessionStartHook converges the SessionStart hook on the current command:
+// it updates sx's command wherever it already sits, collapses duplicates to one,
+// and adds the hook when none is present. A user's matcher, their sibling hooks,
+// and keys such as timeout on sx's own command are all preserved.
 func installSessionStartHook(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 	log := logger.Get()
@@ -112,57 +115,27 @@ func installSessionStartHook(claudeDir string) error {
 		sessionStart = []any{}
 	}
 
-	hookCommand := "sx install --hook-mode --client=claude-code"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code")
 
-	// First, check if exact hook command already exists
-	exactMatch := false
-	var oldHookRef map[string]any
-	for _, item := range sessionStart {
-		if hookMap, ok := item.(map[string]any); ok {
-			if hooksArray, ok := hookMap["hooks"].([]any); ok {
-				for _, h := range hooksArray {
-					if hMap, ok := h.(map[string]any); ok {
-						if cmd, ok := hMap["command"].(string); ok {
-							if cmd == hookCommand {
-								exactMatch = true
-								break
-							}
-							if strings.HasPrefix(cmd, "sx install") || strings.HasPrefix(cmd, "skills install") {
-								oldHookRef = hMap // Remember for updating
-							}
-						}
-					}
-				}
-			}
-		}
-		if exactMatch {
-			break
-		}
-	}
-
-	// Already have exact match, nothing to do
-	if exactMatch {
+	// SessionStart carries no matcher of sx's own, so an entry sx reuses keeps
+	// whatever matcher the user put on it.
+	converged, changed, existed, replaced := convergeHookArray(sessionStart, hookCommand, "install", "")
+	if !changed {
 		return nil
 	}
 
 	// Get current working directory for context logging
 	cwd, _ := os.Getwd()
 
-	// Update old hook if found, otherwise add new
-	if oldHookRef != nil {
-		oldHookRef["command"] = hookCommand
-		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
-	} else {
-		newHook := map[string]any{
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": hookCommand,
-				},
-			},
-		}
-		sessionStart = append(sessionStart, newHook)
-		hooks["SessionStart"] = sessionStart
+	hooks["SessionStart"] = converged
+	switch {
+	case replaced > 0:
+		log.Info("hook updated", "hook", "SessionStart", "command", hookCommand,
+			"replaced", replaced, "cwd", cwd)
+	case existed > 0:
+		// The command was already current; something around it changed.
+		log.Info("hook repaired", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
+	default:
 		log.Info("hook installed", "hook", "SessionStart", "command", hookCommand, "cwd", cwd)
 	}
 
@@ -230,8 +203,9 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove SessionStart hook if requested
 			if uninstallSession {
 				if sessionStart, ok := hooks["SessionStart"].([]any); ok {
-					filtered := removeSxHooks(sessionStart, "sx install", "skills install")
-					if len(filtered) != len(sessionStart) {
+					filtered, removed := removeSxHooks(sessionStart,
+						clipath.CommandOrBare("install", "--hook-mode", "--client=claude-code"), "install")
+					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
 							delete(hooks, "SessionStart")
@@ -246,8 +220,9 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 			// Remove PostToolUse hook if requested
 			if uninstallAnalytics {
 				if postToolUse, ok := hooks["PostToolUse"].([]any); ok {
-					filtered := removeSxHooks(postToolUse, "sx report-usage", "skills report-usage")
-					if len(filtered) != len(postToolUse) {
+					filtered, removed := removeSxHooks(postToolUse,
+						clipath.CommandOrBare("report-usage", "--client=claude-code"), "report-usage")
+					if removed > 0 {
 						modified = true
 						if len(filtered) == 0 {
 							delete(hooks, "PostToolUse")
@@ -288,52 +263,238 @@ func uninstallBootstrap(opts []bootstrap.Option) error {
 	return nil
 }
 
-// removeSxHooks filters out hooks whose command starts with any of the given prefixes
-func removeSxHooks(hooks []any, commandPrefixes ...string) []any {
+// convergeHookArray brings one Claude Code hook array to the state sx wants,
+// and reports whether anything changed.
+//
+// The rule is that sx's command lives in its own entry. Sharing an entry with a
+// user's hooks was the source of two irreconcilable pulls: sx wants to control
+// the matcher on the entry holding its command, while the user's hooks in that
+// same entry are governed by the matcher they wrote. Splitting resolves both —
+// their entry keeps their matcher untouched, ours carries whatever sx owns.
+//
+// ownMatcher is the matcher sx owns for this hook, empty when it owns none. For
+// PostToolUse it decides which tool events get reported, which is sx's concern,
+// so it is re-asserted even when the command itself is already current. For
+// SessionStart sx writes no matcher, so an entry it reuses keeps the user's, and
+// an entry split out of a shared one inherits that entry's matcher.
+//
+// Keys the user added to sx's command object — "timeout" — survive: the object
+// is carried over rather than rebuilt, and when several copies exist their extra
+// keys are merged, since there is no way to tell which copy the user edited.
+//
+// Returns the converged array, whether anything changed, how many of sx's
+// commands were already present, and how many were replaced.
+func convergeHookArray(entries []any, hookCommand, subcommand, ownMatcher string) ([]any, bool, int, int) {
+	kept := make([]any, 0, len(entries)+1)
+
+	var ourEntry map[string]any        // an entry that held only our command
+	var ourEntryCommand map[string]any // its command object, preferred in the merge
+	var ours []map[string]any          // every copy of our command found
+	inheritedMatcher := ""
+	alreadyCurrent := false
+	replaced := 0
+	shared := false
+
+	for _, item := range entries {
+		entry, theirs, mine := splitEntry(item, hookCommand, subcommand)
+		if entry == nil {
+			// Not an entry shape we understand; leave it alone.
+			kept = append(kept, item)
+			continue
+		}
+		ours = append(ours, mine...)
+		for _, obj := range mine {
+			if cmd, _ := obj["command"].(string); cmd == hookCommand {
+				alreadyCurrent = true
+			} else {
+				replaced++
+			}
+		}
+
+		switch {
+		case len(mine) == 0:
+			kept = append(kept, item)
+		case len(theirs) > 0:
+			// Shared: leave their hooks and their matcher exactly as they are, and
+			// remember the matcher so the entry sx splits out inherits it —
+			// otherwise sx's command would stop honoring the scope they set.
+			if m, ok := entry["matcher"].(string); ok && inheritedMatcher == "" {
+				inheritedMatcher = m
+			}
+			entry["hooks"] = theirs
+			kept = append(kept, entry)
+			shared = true
+		case ourEntry == nil:
+			// Held only our command, so it is ours to reuse. Its command object
+			// takes precedence in the merge below: when copies disagree on a key,
+			// the one on the entry sx keeps is the likelier place the user set it.
+			ourEntry = entry
+			ourEntryCommand = mine[0]
+		default:
+			// A further duplicate: drop it.
+		}
+	}
+
+	ourCommand := mergeCommandObjects(ourEntryCommand, ours)
+	ourCommand["command"] = hookCommand
+	// The object can be inherited from a hand-written entry with no "type"; the
+	// entry sx owns outright should be well-formed.
+	t, _ := ourCommand["type"].(string)
+	hadType := t != ""
+	if !hadType {
+		ourCommand["type"] = "command"
+	}
+
+	createdEntry := ourEntry == nil
+	if createdEntry {
+		ourEntry = map[string]any{}
+	}
+	priorMatcher, _ := ourEntry["matcher"].(string)
+	ourEntry["hooks"] = []any{ourCommand}
+	switch {
+	case ownMatcher != "":
+		ourEntry["matcher"] = ownMatcher
+	case createdEntry && inheritedMatcher != "":
+		ourEntry["matcher"] = inheritedMatcher
+	}
+	kept = append(kept, ourEntry)
+
+	// Duplicates that were dropped are replacements too, whatever text they
+	// carried; a matcher-only correction replaces nothing and reports zero.
+	if dropped := len(ours) - 1; dropped > replaced {
+		replaced = dropped
+	}
+
+	// Unchanged only when there was exactly one command, it was already current,
+	// it was not sharing an entry, and any matcher sx owns already matched.
+	unchanged := len(ours) == 1 && alreadyCurrent && !shared
+	if unchanged && ownMatcher != "" && priorMatcher != ownMatcher {
+		unchanged = false
+	}
+	// Normalizing "type" only matters if the result is written; a hook whose
+	// command is already current is exactly the state that normalization exists
+	// for, and reporting it unchanged would leave the fix in memory.
+	if unchanged && !hadType {
+		unchanged = false
+	}
+	return kept, !unchanged, len(ours), replaced
+}
+
+// splitEntry separates one hook entry's commands into the user's and sx's.
+// It returns a nil entry when the item is not a shape this code understands.
+func splitEntry(item any, hookCommand, subcommand string) (entry map[string]any, theirs []any, mine []map[string]any) {
+	entry, ok := item.(map[string]any)
+	if !ok {
+		return nil, nil, nil
+	}
+	hooksArray, ok := entry["hooks"].([]any)
+	if !ok {
+		return nil, nil, nil
+	}
+
+	theirs = make([]any, 0, len(hooksArray))
+	for _, h := range hooksArray {
+		obj, ok := h.(map[string]any)
+		if !ok {
+			theirs = append(theirs, h)
+			continue
+		}
+		cmd, ok := obj["command"].(string)
+		// Byte equality alongside the predicate: a Managed false negative for a
+		// command sx wrote would otherwise grow the array without bound.
+		if !ok || (cmd != hookCommand && !clipath.Managed(cmd, subcommand)) {
+			theirs = append(theirs, h)
+			continue
+		}
+		mine = append(mine, obj)
+	}
+	return entry, theirs, mine
+}
+
+// mergeCommandObjects folds every copy of sx's command object into one so that a
+// key the user set — "timeout" — is honored wherever it sat, rather than being
+// dropped because it was on the copy that lost.
+//
+// preferred is the object from the entry sx keeps, and its values win any
+// collision; without it the winner would be decided by array order, letting a
+// duplicate that is about to be dropped override the entry that survives.
+func mergeCommandObjects(preferred map[string]any, objs []map[string]any) map[string]any {
+	merged := map[string]any{}
+	for k, v := range preferred {
+		if k != "command" {
+			merged[k] = v
+		}
+	}
+	for _, obj := range objs {
+		for k, v := range obj {
+			if k == "command" {
+				continue
+			}
+			if _, exists := merged[k]; !exists {
+				merged[k] = v
+			}
+		}
+	}
+	return merged
+}
+
+// removeSxHooks strips sx's commands from the given hook entries, in either the
+// legacy bare-"sx" form or the absolute-path form current versions write, and
+// drops an entry only when nothing of the user's remains in it. currentCommand
+// is matched byte-for-byte alongside the subcommand predicate, the same pairing
+// install uses: if Managed ever has a false negative for a command sx wrote,
+// uninstall would otherwise leave that hook behind.
+func removeSxHooks(hooks []any, currentCommand string, subcommands ...string) ([]any, int) {
 	var filtered []any
+	removed := 0
 	for _, item := range hooks {
 		hookMap, ok := item.(map[string]any)
 		if !ok {
 			filtered = append(filtered, item)
 			continue
 		}
-
 		hooksArray, ok := hookMap["hooks"].([]any)
 		if !ok {
 			filtered = append(filtered, item)
 			continue
 		}
 
-		// Check if this hook entry contains our command
-		hasSxCommand := false
+		// Strip only our commands. Dropping the whole entry would take a
+		// co-located user hook with it — install deliberately preserves those, so
+		// uninstall destroying them would be the worse half of an asymmetry.
+		keptCommands := make([]any, 0, len(hooksArray))
+		strippedHere := 0
 		for _, h := range hooksArray {
-			hMap, ok := h.(map[string]any)
-			if !ok {
-				continue
-			}
-			cmd, ok := hMap["command"].(string)
-			if !ok {
-				continue
-			}
-			for _, prefix := range commandPrefixes {
-				if strings.HasPrefix(cmd, prefix) {
-					hasSxCommand = true
-					break
+			if hMap, ok := h.(map[string]any); ok {
+				if cmd, ok := hMap["command"].(string); ok && (cmd == currentCommand || clipath.Managed(cmd, subcommands...)) {
+					strippedHere++
+					continue
 				}
 			}
-			if hasSxCommand {
-				break
-			}
+			keptCommands = append(keptCommands, h)
 		}
+		removed += strippedHere
 
-		if !hasSxCommand {
+		switch {
+		case strippedHere == 0:
 			filtered = append(filtered, item)
+		case len(keptCommands) > 0:
+			hookMap["hooks"] = keptCommands
+			filtered = append(filtered, hookMap)
 		}
+		// Entry held only our commands: drop it.
 	}
-	return filtered
+	return filtered, removed
 }
 
-// installUsageReportingHook installs the PostToolUse hook for usage tracking
+// postToolUseMatcher is sx's own matcher for the usage-reporting hook: it decides
+// which tool events are worth reporting, which is sx's concern rather than the
+// user's. Unlike a SessionStart matcher, it is re-asserted on update.
+const postToolUseMatcher = "Skill|Task|SlashCommand|mcp__.*"
+
+// installUsageReportingHook converges the PostToolUse usage-reporting hook the
+// same way installSessionStartHook does, with one difference: the matcher on this
+// hook is sx's own config, so it is re-asserted rather than preserved.
 func installUsageReportingHook(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 	log := logger.Get()
@@ -362,55 +523,19 @@ func installUsageReportingHook(claudeDir string) error {
 		postToolUse = []any{}
 	}
 
-	hookCommand := "sx report-usage --client=claude-code"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=claude-code")
 
-	// Check if our hook already exists (check for both old and new command formats)
-	hookExists := false
-	var oldHookRef map[string]any
-	for _, item := range postToolUse {
-		if hookMap, ok := item.(map[string]any); ok {
-			if hooksArray, ok := hookMap["hooks"].([]any); ok {
-				for _, h := range hooksArray {
-					if hMap, ok := h.(map[string]any); ok {
-						if cmd, ok := hMap["command"].(string); ok {
-							if cmd == hookCommand {
-								hookExists = true
-								break
-							}
-							if cmd == "skills report-usage" || cmd == "sx report-usage" || cmd == "skills report-usage --client=claude-code" {
-								oldHookRef = hMap // Remember for updating
-							}
-						}
-					}
-				}
-			}
-		}
-		if hookExists {
-			break
-		}
-	}
-
-	// Already have exact match, nothing to do
-	if hookExists {
+	converged, changed, existed, replaced := convergeHookArray(postToolUse, hookCommand, "report-usage", postToolUseMatcher)
+	if !changed {
 		return nil
 	}
-
-	// Update old hook if found, otherwise add new
-	if oldHookRef != nil {
-		oldHookRef["command"] = hookCommand
-		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand)
-	} else {
-		newHook := map[string]any{
-			"matcher": "Skill|Task|SlashCommand|mcp__.*",
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": hookCommand,
-				},
-			},
-		}
-		postToolUse = append(postToolUse, newHook)
-		hooks["PostToolUse"] = postToolUse
+	hooks["PostToolUse"] = converged
+	switch {
+	case replaced > 0:
+		log.Info("hook updated", "hook", "PostToolUse", "command", hookCommand, "replaced", replaced)
+	case existed > 0:
+		log.Info("hook repaired", "hook", "PostToolUse", "command", hookCommand)
+	default:
 		log.Info("hook installed", "hook", "PostToolUse", "command", hookCommand)
 	}
 

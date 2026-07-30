@@ -83,6 +83,20 @@ if [ -n "${MACOS_CERTIFICATE_P12:-}" ] && [ -n "${MACOS_CERTIFICATE_PASSWORD:-}"
     exit 1
   fi
 
+  # Nested executables must be signed before the bundle that contains them.
+  # The bundle signature below is deliberately not --deep (Apple discourages
+  # it), so an unsigned Mach-O in Contents/Resources would sail through signing
+  # and then fail notarization with "code object is not signed at all".
+  BUNDLED_CLI="$APP_PATH/Contents/Resources/sx"
+  if [ -f "$BUNDLED_CLI" ]; then
+    echo "==> Signing bundled sx CLI"
+    bounded codesign --force --options runtime --timestamp \
+      --sign "$IDENTITY" "$BUNDLED_CLI"
+  else
+    echo "WARNING: no bundled CLI at Contents/Resources/sx — app-only installs" >&2
+    echo "         will fall back to finding sx on PATH (see internal/clipath)" >&2
+  fi
+
   echo "==> Signing $APP_NAME with '$IDENTITY' (hardened runtime)"
   bounded codesign --force --options runtime --timestamp \
     --sign "$IDENTITY" "$APP_PATH"

@@ -13,6 +13,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/bootstrap"
 	"github.com/sleuth-io/sx/v2/internal/clients"
 	"github.com/sleuth-io/sx/v2/internal/clients/gemini/handlers"
+	"github.com/sleuth-io/sx/v2/internal/clipath"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
 )
@@ -305,7 +306,7 @@ func (c *Client) installSessionHook() error {
 	}
 	geminiDir := filepath.Join(home, handlers.ConfigDir)
 
-	hookCommand := "sx install --hook-mode --client=gemini"
+	hookCommand := clipath.CommandOrBare("install", "--hook-mode", "--client=gemini")
 	return handlers.AddHook(geminiDir, "SessionStart", "sx-session", hookCommand)
 }
 
@@ -317,7 +318,7 @@ func (c *Client) installAnalyticsHook() error {
 	}
 	geminiDir := filepath.Join(home, handlers.ConfigDir)
 
-	hookCommand := "sx report-usage --client=gemini"
+	hookCommand := clipath.CommandOrBare("report-usage", "--client=gemini")
 	return handlers.AddHook(geminiDir, "AfterTool", "sx-analytics", hookCommand)
 }
 
