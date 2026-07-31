@@ -482,7 +482,7 @@ func commonAddTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, repoU
 		if err != nil {
 			return nil, err
 		}
-		normalized := scope.CanonicalRepoURL(strings.TrimSpace(repoURL))
+		normalized := scope.NormalizeRepoURL(strings.TrimSpace(repoURL))
 		if normalized == "" {
 			return nil, errors.New("cannot add empty repository URL")
 		}
@@ -516,9 +516,19 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 		needle := strings.TrimSpace(repoURL)
 		// URL-aware removal so rows stored under an older normalization
 		// (or another URL form) still resolve to the same repository.
+		// Several rows can match one needle; the audit event records the
+		// rows actually deleted, and a no-op emits no event at all.
+		var removed []string
 		team.Repositories = slices.DeleteFunc(slices.Clone(team.Repositories), func(existing string) bool {
-			return scope.MatchRepoURLs(existing, needle)
+			if scope.MatchRepoURLs(existing, needle) {
+				removed = append(removed, existing)
+				return true
+			}
+			return false
 		})
+		if len(removed) == 0 {
+			return nil, nil
+		}
 		if _, err := m.UpsertTeam(*team); err != nil {
 			return nil, err
 		}
@@ -526,7 +536,7 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 			Event:      mgmt.EventTeamRepoRemoved,
 			TargetType: mgmt.TargetTypeTeam,
 			Target:     teamName,
-			Data:       map[string]any{"repository": scope.CanonicalRepoURL(needle)},
+			Data:       map[string]any{"repositories": removed},
 		}, nil
 	})
 }
@@ -843,7 +853,7 @@ func commonSetAssetInstallation(vaultRoot string, actor mgmt.Actor, assetName st
 		}
 		s = manifest.Scope{
 			Kind: manifest.ScopeKindRepo,
-			Repo: scope.CanonicalRepoURL(target.Repo),
+			Repo: scope.NormalizeRepoURL(target.Repo),
 		}
 	case InstallKindPath:
 		if target.Repo == "" || len(target.Paths) == 0 {
@@ -851,7 +861,7 @@ func commonSetAssetInstallation(vaultRoot string, actor mgmt.Actor, assetName st
 		}
 		s = manifest.Scope{
 			Kind:  manifest.ScopeKindPath,
-			Repo:  scope.CanonicalRepoURL(target.Repo),
+			Repo:  scope.NormalizeRepoURL(target.Repo),
 			Paths: canonicalPaths(target.Paths),
 		}
 	case InstallKindTeam:
@@ -1510,12 +1520,12 @@ func installTargetScope(target InstallTarget, actor mgmt.Actor) (manifest.Scope,
 		if target.Repo == "" {
 			return manifest.Scope{}, errors.New("repo installation missing repo URL")
 		}
-		return manifest.Scope{Kind: manifest.ScopeKindRepo, Repo: scope.CanonicalRepoURL(target.Repo)}, nil
+		return manifest.Scope{Kind: manifest.ScopeKindRepo, Repo: scope.NormalizeRepoURL(target.Repo)}, nil
 	case InstallKindPath:
 		if target.Repo == "" || len(target.Paths) == 0 {
 			return manifest.Scope{}, errors.New("path installation requires repo URL and at least one path")
 		}
-		return manifest.Scope{Kind: manifest.ScopeKindPath, Repo: scope.CanonicalRepoURL(target.Repo), Paths: canonicalPaths(target.Paths)}, nil
+		return manifest.Scope{Kind: manifest.ScopeKindPath, Repo: scope.NormalizeRepoURL(target.Repo), Paths: canonicalPaths(target.Paths)}, nil
 	case InstallKindTeam:
 		if target.Team == "" {
 			return manifest.Scope{}, errors.New("team installation missing team name")

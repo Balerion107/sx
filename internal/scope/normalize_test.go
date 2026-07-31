@@ -11,12 +11,11 @@ import (
 // Pass nil for "no aliases configured".
 func withSSHHostStub(t *testing.T, hosts map[string]string) {
 	t.Helper()
-	orig := lookupSSHHostname
-	lookupSSHHostname = func(alias string) (string, bool) {
+	restore := SetSSHHostLookup(func(alias string) (string, bool) {
 		h, ok := hosts[alias]
 		return h, ok
-	}
-	t.Cleanup(func() { lookupSSHHostname = orig })
+	})
+	t.Cleanup(restore)
 }
 
 func TestNormalizeRepoURL(t *testing.T) {
@@ -40,6 +39,9 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"ssh scheme with port", "ssh://git@github.com:22/acme/x.git", "github.com/acme/x"},
 		{"ssh nondefault port", "ssh://git@gitea.corp.com:2222/acme/x.git", "gitea.corp.com/acme/x"},
 		{"already normalized", "github.com/acme/x", "github.com/acme/x"},
+		{"legacy ported https form", "gitea.corp.com:3000/acme/x", "gitea.corp.com/acme/x"},
+		{"legacy ported ssh form", "ghe.corp:2222/acme/x", "ghe.corp/acme/x"},
+		{"host and port only", "gitea.corp.com:3000", "gitea.corp.com:3000"},
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
 		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},
@@ -130,37 +132,21 @@ func TestMatchRepoURLs_AliasResolvesToStoredScope(t *testing.T) {
 	}
 }
 
-func TestCanonicalRepoURL(t *testing.T) {
-	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
+func TestMatchRepoURLs_LegacyPortedRows(t *testing.T) {
+	withSSHHostStub(t, nil)
 
-	tests := []struct{ in, want string }{
-		{"git@workgit:acme/x.git", "github.com/acme/x"},
-		{"git@github.com:acme/x.git", "github.com/acme/x"},
-		{"https://github.com/acme/x", "github.com/acme/x"},
-		{"workgit:acme/x", "github.com/acme/x"},
-	}
-	for _, tt := range tests {
-		if got := CanonicalRepoURL(tt.in); got != tt.want {
-			t.Errorf("CanonicalRepoURL(%q) = %q, want %q", tt.in, got, tt.want)
+	// The pre-alias normalizer persisted scope rows with the port kept
+	// ("gitea.corp.com:3000/acme/x"); those rows must keep matching the
+	// live remotes they were written for.
+	legacy := "gitea.corp.com:3000/acme/x"
+	for _, remote := range []string{
+		"https://gitea.corp.com:3000/acme/x.git",
+		"ssh://git@gitea.corp.com:2222/acme/x.git",
+		"https://gitea.corp.com/acme/x",
+	} {
+		if !MatchRepoURLs(legacy, remote) {
+			t.Errorf("legacy stored row %q should match remote %q", legacy, remote)
 		}
-	}
-}
-
-func TestCanonicalRepoURL_KeepsDottedHostsLiteral(t *testing.T) {
-	// The GitHub port-443 workaround (Host github.com / HostName
-	// ssh.github.com) is transport detail on the writer's machine —
-	// persisting the resolved host would poison shared vault data with
-	// a hostname no teammate's remote normalizes to.
-	withSSHHostStub(t, map[string]string{
-		"github.com": "ssh.github.com",
-		"ghe.corp":   "ghe-internal.corp",
-	})
-
-	if got := CanonicalRepoURL("git@github.com:acme/x.git"); got != "github.com/acme/x" {
-		t.Errorf("CanonicalRepoURL rewrote a dotted host: got %q, want github.com/acme/x", got)
-	}
-	if got := CanonicalRepoURL("git@ghe.corp:acme/x.git"); got != "ghe.corp/acme/x" {
-		t.Errorf("CanonicalRepoURL rewrote a dotted alias: got %q, want ghe.corp/acme/x", got)
 	}
 }
 

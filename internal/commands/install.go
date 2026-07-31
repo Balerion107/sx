@@ -186,6 +186,9 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
+		if s := describeCurrentScope(env.CurrentScope); s != "" {
+			fmt.Fprintln(w, "# Current scope:", s)
+		}
 		printDryRunScopeSkips(w, skips)
 		return
 	}

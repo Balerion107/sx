@@ -164,23 +164,6 @@ func NormalizeRepoURL(repoURL string) string {
 	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
 }
 
-// CanonicalRepoURL returns the preferred stored form of a repo URL:
-// the normalized URL with an alias-shaped SSH host (no dot, e.g.
-// "workgit") resolved to its real host, so vault data records a host
-// every teammate can match. Hosts containing a dot are kept literal
-// even when ~/.ssh/config remaps them: entries like the GitHub
-// port-443 workaround (Host github.com / HostName ssh.github.com) are
-// transport detail on the writer's machine, and substituting them
-// would write a host no teammate's remote normalizes to.
-func CanonicalRepoURL(repoURL string) string {
-	if host, _ := sshHostAndPath(repoURL); host != "" && !strings.Contains(host, ".") {
-		if resolved := aliasResolvedForm(repoURL); resolved != "" {
-			return resolved
-		}
-	}
-	return NormalizeRepoURL(repoURL)
-}
-
 // LooksLikeSameRepo reports whether two repo URLs name the same
 // owner/repo path even though they don't fully match — the signature
 // of a host form that failed to normalize (an unresolvable alias, a
@@ -247,6 +230,16 @@ func aliasResolvedForm(repoURL string) string {
 // HostName. Package-level so tests can stub the ~/.ssh/config lookup.
 var lookupSSHHostname = git.SSHConfigHostname
 
+// SetSSHHostLookup replaces the ~/.ssh/config hostname lookup and
+// returns a func restoring the previous one. Test seam only: it lets
+// suites in other packages stay hermetic instead of parsing the
+// developer's real ssh config through the process-wide cache.
+func SetSSHHostLookup(fn func(alias string) (string, bool)) (restore func()) {
+	orig := lookupSSHHostname
+	lookupSSHHostname = fn
+	return func() { lookupSSHHostname = orig }
+}
+
 // sshHostAndPath extracts the host and repo path from an SSH remote
 // (scp-style or ssh://). Returns "" for non-SSH URLs.
 func sshHostAndPath(repoURL string) (host, path string) {
@@ -271,8 +264,14 @@ func sshHostAndPath(repoURL string) (host, path string) {
 // separates host from path, and userinfo is optional — ssh-config
 // alias users typically write "workgit:acme/x" because User lives in
 // the config. Single-character hosts are rejected so Windows drive
-// paths (c:/repos/x) are never mistaken for remotes. The host part
-// cannot carry a port in this syntax.
+// paths (c:/repos/x) are never mistaken for remotes.
+//
+// An all-digit segment between the colon and the first slash is
+// treated as a port and dropped: rows persisted by the pre-alias
+// normalizer kept the port ("gitea.corp.com:3000/acme/x",
+// "ghe.corp:2222/acme/x" from ssh:// remotes), and no real remote
+// has a numeric-only first path segment, so this makes legacy stored
+// scopes normalize to the same value as today's remotes.
 func splitSCPLike(s string) (host, path string, ok bool) {
 	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
@@ -291,7 +290,30 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 	if len(host) <= 1 {
 		return "", "", false
 	}
-	return host, s[colon+1:], true
+	path = s[colon+1:]
+	if slash := strings.IndexByte(path, '/'); slash > 0 && isAllDigits(path[:slash]) {
+		path = path[slash+1:]
+	} else if isAllDigits(path) {
+		// "host:3000" is a host and port, not a repository.
+		return "", "", false
+	}
+	if path == "" {
+		return "", "", false
+	}
+	return host, path, true
+}
+
+// isAllDigits reports whether s is non-empty and entirely ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeRepoPath normalizes a repository-relative path

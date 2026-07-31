@@ -11,6 +11,15 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/scope"
 )
 
+// stubSSHHostLookup keeps these tests hermetic — without it the
+// matcher would parse the developer's real ~/.ssh/config through the
+// process-wide cache in internal/git.
+func stubSSHHostLookup(t *testing.T) {
+	t.Helper()
+	restore := scope.SetSSHHostLookup(func(string) (string, bool) { return "", false })
+	t.Cleanup(restore)
+}
+
 // scopedLockFile builds a lock file with one global asset and two
 // assets scoped to the given repos.
 func scopedLockFile(repos ...string) *lockfile.LockFile {
@@ -30,6 +39,7 @@ func scopedLockFile(repos ...string) *lockfile.LockFile {
 }
 
 func TestFilterAssetsByScope_CountsScopeSkips(t *testing.T) {
+	stubSSHHostLookup(t)
 	clientList := []clients.Client{&stubClient{id: "claude-code"}}
 	lf := scopedLockFile(
 		"https://github.com/acme/matching",
@@ -63,6 +73,7 @@ func TestFilterAssetsByScope_CountsScopeSkips(t *testing.T) {
 }
 
 func TestFilterAssetsByScope_NearMissAndProfileDedupe(t *testing.T) {
+	stubSSHHostLookup(t)
 	clientList := []clients.Client{&stubClient{id: "claude-code"}}
 	// Same owner/repo as the current remote but a host form that can't
 	// be reconciled — the near-miss signature.
@@ -123,6 +134,7 @@ func TestPrintDryRunPreview_ReportsScopeSkips(t *testing.T) {
 	printDryRunPreview(&buf, nil, env, map[string]string{}, false, skipsOf([]string{"a"}, nil))
 	out = buf.String()
 	if !strings.Contains(out, "# No assets resolved for this context.") ||
+		!strings.Contains(out, "# Current scope: git@github.com:acme/app.git") ||
 		!strings.Contains(out, "# 1 asset(s) skipped: scope does not match this context") {
 		t.Fatalf("zero-resolved dry-run output missing skip line:\n%s", out)
 	}
