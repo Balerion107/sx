@@ -95,7 +95,7 @@ func TestFilterAssetsByScope_NearMissAndProfileDedupe(t *testing.T) {
 		t.Fatalf("NearMiss() = %d, want 1", skips.NearMiss())
 	}
 	details := skips.NearMissDetails()
-	if len(details) != 1 || details[0] != "scoped-a: scoped to https://github.com/acme/app" {
+	if len(details) != 1 || details[0] != "scoped-a: scoped to https://github.com/acme/app (github.com/acme/app)" {
 		t.Fatalf("NearMissDetails() = %v", details)
 	}
 }
@@ -123,9 +123,10 @@ func TestPrintDryRunPreview_ReportsScopeSkips(t *testing.T) {
 	printDryRunPreview(&buf, assets, env, map[string]string{}, false,
 		skipsOf([]string{"a", "b", "c"}, map[string]string{"a": "https://ghe.corp/acme/app"}))
 	out := buf.String()
-	if !strings.Contains(out, "# 3 asset(s) skipped: scope does not match this context") ||
+	if !strings.Contains(out, "# Current scope: git@github.com:acme/app.git (github.com/acme/app)") ||
+		!strings.Contains(out, "# 3 asset(s) skipped: scope does not match this context") ||
 		!strings.Contains(out, "# 1 of them name the same owner/repo path as this repo but a different host:") ||
-		!strings.Contains(out, "#   a: scoped to https://ghe.corp/acme/app") {
+		!strings.Contains(out, "#   a: scoped to https://ghe.corp/acme/app (ghe.corp/acme/app)") {
 		t.Fatalf("dry-run output missing skip lines:\n%s", out)
 	}
 
@@ -134,7 +135,7 @@ func TestPrintDryRunPreview_ReportsScopeSkips(t *testing.T) {
 	printDryRunPreview(&buf, nil, env, map[string]string{}, false, skipsOf([]string{"a"}, nil))
 	out = buf.String()
 	if !strings.Contains(out, "# No assets resolved for this context.") ||
-		!strings.Contains(out, "# Current scope: git@github.com:acme/app.git") ||
+		!strings.Contains(out, "# Current scope: git@github.com:acme/app.git (github.com/acme/app)") ||
 		!strings.Contains(out, "# 1 asset(s) skipped: scope does not match this context") {
 		t.Fatalf("zero-resolved dry-run output missing skip line:\n%s", out)
 	}

@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"fmt"
+
+	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
 	"github.com/sleuth-io/sx/v2/internal/ui/components"
 	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
@@ -47,6 +50,7 @@ func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.In
 	styledOut.Newline()
 	styledOut.Header("Scope for " + name)
 	displayCurrentTargets(current, installed, styledOut)
+	warnAliasScopeTargets(change.Targets, styledOut)
 
 	if !displayScopeChanges(current, after, styledOut) {
 		styledOut.Info("No changes to apply.")
@@ -71,6 +75,24 @@ func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.In
 		Targets:      change.Targets,
 		Append:       change.Mode == scopeAdd,
 	}, nil
+}
+
+// warnAliasScopeTargets notes repo/path scope targets whose host is an
+// SSH alias in this machine's ~/.ssh/config. What gets stored stays
+// literal — the note makes the trap visible while the user can still
+// pass the real hostname so teammates' remotes match the stored scope.
+func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Output) {
+	for _, t := range targets {
+		if t.Repo == "" {
+			continue
+		}
+		candidates := scope.NormalizeRepoURLCandidates(t.Repo)
+		if len(candidates) > 1 {
+			styledOut.Warning(fmt.Sprintf(
+				"%s uses an SSH alias resolving to %s on this machine; storing %s — pass the real hostname if teammates should match it",
+				t.Repo, candidates[1], candidates[0]))
+		}
+	}
 }
 
 // unionTargets concatenates two target lists, deduping by display identity so

@@ -186,18 +186,14 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
-		if s := describeCurrentScope(env.CurrentScope); s != "" {
-			fmt.Fprintln(w, "# Current scope:", s)
-		}
+		printDryRunCurrentScope(w, env.CurrentScope)
 		printDryRunScopeSkips(w, skips)
 		return
 	}
 
 	fmt.Fprintln(w, "# sx install --dry-run")
 	fmt.Fprintln(w, "# Resolved for:", strings.Join(getTargetClientIDs(env.Clients), ", "))
-	if s := describeCurrentScope(env.CurrentScope); s != "" {
-		fmt.Fprintln(w, "# Current scope:", s)
-	}
+	printDryRunCurrentScope(w, env.CurrentScope)
 	printDryRunScopeSkips(w, skips)
 	fmt.Fprintln(w)
 
@@ -223,6 +219,21 @@ func reportScopeSkips(skips *scopeSkips, styledOut *ui.Output) {
 		styledOut.Warning(fmt.Sprintf(
 			"%d skipped asset(s) are scoped to a repo with this repo's owner/repo path but a different host; run 'sx install --dry-run' for details", n))
 	}
+}
+
+// printDryRunCurrentScope prints the caller's context, appending the
+// normalized repo form matching actually compares — the fact that
+// distinguishes "my SSH alias isn't resolving" from "this asset is
+// scoped to another repo" when read next to a near-miss detail line.
+func printDryRunCurrentScope(w io.Writer, current *scope.Scope) {
+	s := describeCurrentScope(current)
+	if s == "" {
+		return
+	}
+	if current.RepoURL != "" {
+		s += " (" + scope.NormalizeRepoURL(current.RepoURL) + ")"
+	}
+	fmt.Fprintln(w, "# Current scope:", s)
 }
 
 // printDryRunScopeSkips notes assets excluded because their scope did

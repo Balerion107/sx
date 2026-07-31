@@ -42,6 +42,8 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"legacy ported https form", "gitea.corp.com:3000/acme/x", "gitea.corp.com/acme/x"},
 		{"legacy ported ssh form", "ghe.corp:2222/acme/x", "ghe.corp/acme/x"},
 		{"host and port only", "gitea.corp.com:3000", "gitea.corp.com:3000"},
+		{"numeric owner with user", "git@github.com:123/repo.git", "github.com/123/repo"},
+		{"numeric owner userless", "github.com:99999999/repo", "github.com/99999999/repo"},
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
 		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},

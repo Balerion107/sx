@@ -266,12 +266,13 @@ func sshHostAndPath(repoURL string) (host, path string) {
 // the config. Single-character hosts are rejected so Windows drive
 // paths (c:/repos/x) are never mistaken for remotes.
 //
-// An all-digit segment between the colon and the first slash is
-// treated as a port and dropped: rows persisted by the pre-alias
-// normalizer kept the port ("gitea.corp.com:3000/acme/x",
-// "ghe.corp:2222/acme/x" from ssh:// remotes), and no real remote
-// has a numeric-only first path segment, so this makes legacy stored
-// scopes normalize to the same value as today's remotes.
+// In userless input only, a leading port-like segment (all digits,
+// ≤ 65535) after the colon is dropped: rows persisted by the
+// pre-alias normalizer kept the port ("gitea.corp.com:3000/acme/x",
+// "ghe.corp:2222/acme/x" from ssh:// remotes) and came from u.Host,
+// so they never carry userinfo. Real scp remotes are written with
+// "user@", so a numeric owner like git@github.com:123/repo is left
+// intact rather than mistaken for a port.
 func splitSCPLike(s string) (host, path string, ok bool) {
 	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
@@ -284,18 +285,22 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 		return "", "", false
 	}
 	host = s[:colon]
+	hadUser := false
 	if at := strings.IndexByte(host, '@'); at >= 0 {
 		host = host[at+1:]
+		hadUser = true
 	}
 	if len(host) <= 1 {
 		return "", "", false
 	}
 	path = s[colon+1:]
-	if slash := strings.IndexByte(path, '/'); slash > 0 && isAllDigits(path[:slash]) {
-		path = path[slash+1:]
-	} else if isAllDigits(path) {
-		// "host:3000" is a host and port, not a repository.
-		return "", "", false
+	if !hadUser {
+		if slash := strings.IndexByte(path, '/'); slash > 0 && looksLikePort(path[:slash]) {
+			path = path[slash+1:]
+		} else if looksLikePort(path) {
+			// "host:3000" is a host and port, not a repository.
+			return "", "", false
+		}
 	}
 	if path == "" {
 		return "", "", false
@@ -303,17 +308,19 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 	return host, path, true
 }
 
-// isAllDigits reports whether s is non-empty and entirely ASCII digits.
-func isAllDigits(s string) bool {
-	if s == "" {
+// looksLikePort reports whether s is a valid TCP port number.
+func looksLikePort(s string) bool {
+	if s == "" || len(s) > 5 {
 		return false
 	}
+	n := 0
 	for _, r := range s {
 		if r < '0' || r > '9' {
 			return false
 		}
+		n = n*10 + int(r-'0')
 	}
-	return true
+	return n > 0 && n <= 65535
 }
 
 // normalizeRepoPath normalizes a repository-relative path

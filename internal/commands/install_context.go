@@ -171,13 +171,16 @@ func (s *scopeSkips) record(asset *lockfile.Asset, matcher *scope.Matcher) {
 func (s *scopeSkips) Skipped() int  { return len(s.skippedNames) }
 func (s *scopeSkips) NearMiss() int { return len(s.nearMissRepos) }
 
-// NearMissDetails returns "name: scoped to repo" lines, sorted by
-// asset name for deterministic output.
+// NearMissDetails returns "name: scoped to repo (normalized)" lines,
+// sorted by asset name for deterministic output. The normalized form
+// is what matching actually compared, so the user can see exactly
+// which side failed to reduce to the expected host/owner/repo.
 func (s *scopeSkips) NearMissDetails() []string {
 	names := slices.Sorted(maps.Keys(s.nearMissRepos))
 	details := make([]string, 0, len(names))
 	for _, name := range names {
-		details = append(details, name+": scoped to "+s.nearMissRepos[name])
+		repo := s.nearMissRepos[name]
+		details = append(details, fmt.Sprintf("%s: scoped to %s (%s)", name, repo, scope.NormalizeRepoURL(repo)))
 	}
 	return details
 }
