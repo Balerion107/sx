@@ -58,6 +58,13 @@ scope that won't resolve), it's recorded as a warning and the copy continues —
 one bad item never aborts the whole migration. The final report lists every
 warning.
 
+Repo scope rows and team repository rows written by older sx versions
+that kept a port (`gitea.corp.com:3000/acme/x`) are migrated in their
+modern portless form (`gitea.corp.com/acme/x`) so they keep matching
+on the destination. Each such rewrite is listed in the report; if a
+row's numeric segment was a genuine path component rather than a port,
+re-add it on the destination as `https://host/2024/team/app`.
+
 ## Directionality and what's lossy
 
 Copies between **git and path vaults are fully lossless** — those backends store

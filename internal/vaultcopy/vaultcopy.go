@@ -127,6 +127,11 @@ func copyTeams(ctx context.Context, src, dst vault.Vault, opts Options, r *Repor
 		}
 		r.Teams++
 		if opts.DryRun {
+			// Preview legacy-row rewrites in dry-run too, matching the
+			// asset-scope path, so the report is complete either way.
+			for _, repo := range full.Repositories {
+				warnLegacyRowRewrite(r, "team "+full.Name+" repo", repo, scope.CanonicalizeStoredRepoRow(repo))
+			}
 			continue
 		}
 		team := mgmt.Team{
@@ -144,6 +149,7 @@ func copyTeams(ctx context.Context, src, dst vault.Vault, opts Options, r *Repor
 			// the destination, which normalize strictly — collapse legacy
 			// ported rows first or they re-encode as dead slash forms.
 			canonical := scope.CanonicalizeStoredRepoRow(repo)
+			warnLegacyRowRewrite(r, "team "+full.Name+" repo", repo, canonical)
 			if err := dst.AddTeamRepository(ctx, full.Name, canonical); err != nil {
 				r.warnf("add repo %q to team %q: %v", canonical, full.Name, err)
 			}
@@ -323,6 +329,7 @@ func copyAssetScopes(ctx context.Context, dst scopeInstaller, name string, scope
 				r.warnf("asset %q: unsupported scope kind %q; skipped", name, sc.Kind)
 				continue
 			}
+			warnLegacyRowRewrite(r, "asset "+name+" scope", sc.Repo, target.Repo)
 			targets = append(targets, target)
 		}
 	}
@@ -379,6 +386,17 @@ func copyAssetScopes(ctx context.Context, dst scopeInstaller, name string, scope
 			continue
 		}
 		r.Scopes++
+	}
+}
+
+// warnLegacyRowRewrite records when migrating a stored row collapsed
+// its legacy ported reading — a one-way rewrite ("host:2024/team/app"
+// → "host/team/app") that is correct for rows whose numeric segment
+// really was a port but repoints ones where it was a path component.
+// The copy report is the only place the original form survives.
+func warnLegacyRowRewrite(r *Report, what, original, migrated string) {
+	if migrated != scope.NormalizeRepoURL(original) {
+		r.warnf("%s %q migrated as %q (legacy port reading)", what, original, migrated)
 	}
 }
 

@@ -1575,6 +1575,16 @@ func installScopeMatches(scopeRow, needle manifest.Scope) bool {
 		// add/remove (vault writes), which must resolve identically on
 		// every machine rather than through the operator's ~/.ssh/config,
 		// while still recognizing rows stored with a legacy kept port.
+		//
+		// Deliberate width: the stored row's legacy reading means a
+		// removal needle "host/team/app" also removes a stored
+		// "host:2024/team/app" row, and an add of "host/team/app" is a
+		// no-op while that row exists. Both follow from the row's dual
+		// reading — it already grants "host/team/app" at match time, so
+		// removing it honors the request and re-adding is redundant.
+		// Without the width, a legacy row could never be removed by the
+		// URL users actually see for the repo. Pinned by
+		// TestInstallScopeMatches_LegacyReadingWidth.
 		return scope.StoredRepoRowMatches(scopeRow.Repo, needle.Repo)
 	case manifest.ScopeKindPath:
 		return scope.StoredRepoRowMatches(scopeRow.Repo, needle.Repo) && slices.Equal(canonicalPaths(scopeRow.Paths), canonicalPaths(needle.Paths))

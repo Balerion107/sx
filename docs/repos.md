@@ -124,9 +124,13 @@ When a caller runs `sx install` inside a working tree, sx reads the
 git remote, normalizes the URL, and matches it against every asset's
 scope rows:
 
-* `kind = "repo"` matches when the normalized URLs are equal.
-* `kind = "path"` matches when the URLs are equal **and** the caller's
-  current working directory is inside one of the listed paths.
+* `kind = "repo"` matches when the URLs name the same repository —
+  see [Repo scope](#repo-scope) for what that means: normalization
+  across transports, SSH alias resolution, and legacy-row readings
+  all apply.
+* `kind = "path"` matches when the URLs name the same repository
+  (same rules) **and** the caller's current working directory is
+  inside one of the listed paths.
 
 Outside any matching repo, the asset is filtered out — it doesn't
 appear in the resolved lock file and isn't written to any client

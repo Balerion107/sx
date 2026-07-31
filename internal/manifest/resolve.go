@@ -277,12 +277,18 @@ func resolveScopes(in []Scope, m *Manifest, actorEmail string) (_ []lockfile.Sco
 	return mergeScopes(accumulated), false
 }
 
-// mergeScopes dedupes rows naming the same repository and collapses
+// mergeScopes dedupes on normalized repo URL and collapses
 // path-restricted entries into a bare-repo entry when both are present
-// for the same repo. Rows are folded together when either reads as the
-// same repository under scope.StoredRepoRowMatches — which includes the
-// legacy ported reading, so a legacy team row ("gitea.corp.com:3000/…")
-// and a direct scope row for the same repo still merge into one row.
+// for the same repo. Rows fold ONLY on normalized equality: the legacy
+// ported reading (scope.MatchStoredRepoURL) is deliberately excluded —
+// it is wider than the URLs justify, and using it here would silently
+// drop a scope row when a legacy-shaped row and a modern row name what
+// may be two different repositories ("gitea.corp.com:2024/team/app"
+// vs "gitea.corp.com/team/app"), with the survivor depending on
+// declaration order. A legacy row and its modern form therefore stay
+// two lock rows; match-time reconciliation still installs to the right
+// clones for both, at the cosmetic cost of the asset appearing under
+// two scope headings in `sx config`.
 func mergeScopes(in []lockfile.Scope) []lockfile.Scope {
 	type key struct{ repo string }
 	type agg struct {
@@ -294,34 +300,13 @@ func mergeScopes(in []lockfile.Scope) []lockfile.Scope {
 	byRepo := make(map[key]*agg)
 	order := make([]key, 0, len(in))
 
-	// findAgg locates an existing aggregate for a row that names the
-	// same repository under a different form (legacy ported reading in
-	// either direction). Linear scan: scope lists are small.
-	findAgg := func(repo string) *agg {
-		for _, k := range order {
-			a := byRepo[k]
-			if scope.StoredRepoRowMatches(a.repo, repo) || scope.StoredRepoRowMatches(repo, a.repo) {
-				return a
-			}
-		}
-		return nil
-	}
-
 	for _, s := range in {
 		k := key{scope.NormalizeRepoURL(s.Repo)}
 		a, ok := byRepo[k]
 		if !ok {
-			if existing := findAgg(s.Repo); existing != nil {
-				// Register this form's key too so later rows in the same
-				// form take the map fast path. Output iterates order, so
-				// the shared aggregate is still emitted once.
-				a = existing
-				byRepo[k] = a
-			} else {
-				a = &agg{repo: s.Repo, seen: make(map[string]struct{})}
-				byRepo[k] = a
-				order = append(order, k)
-			}
+			a = &agg{repo: s.Repo, seen: make(map[string]struct{})}
+			byRepo[k] = a
+			order = append(order, k)
 		}
 		if len(s.Paths) == 0 {
 			a.pathWide = true

@@ -51,9 +51,6 @@ func resolveScopeFromFlags(out *outputHelper, v vaultpkg.Vault, name string, cur
 	styledOut.Newline()
 	styledOut.Header("Scope for " + name)
 	displayCurrentTargets(current, installed, styledOut)
-	if vaultpkg.PersistsRepoHost(v) {
-		warnAliasScopeTargets(change.Targets, styledOut)
-	}
 
 	if !displayScopeChanges(current, after, styledOut) {
 		styledOut.Info("No changes to apply.")
@@ -71,6 +68,13 @@ func resolveScopeFromFlags(out *outputHelper, v vaultpkg.Vault, name string, cur
 			styledOut.Info("No changes made")
 			return &scopeResult{Inherit: true}, nil
 		}
+	}
+
+	// Note only once the write is going to proceed — after the
+	// no-changes branch and the user's confirmation — so "storing …"
+	// never describes a value that was never stored.
+	if vaultpkg.PersistsRepoHost(v) {
+		warnAliasScopeTargets(change.Targets, styledOut)
 	}
 
 	return &scopeResult{

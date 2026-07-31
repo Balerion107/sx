@@ -142,18 +142,10 @@ are added — you are not added automatically.`,
 
 			// Canonical on write: store the same form `sx team repo add`
 			// would, so one repo can't end up listed under two spellings.
-			// Same alias note as `team repo add`, and only for backends
-			// that persist the host.
 			normalizedRepos := make([]string, 0, len(repos))
 			for _, r := range repos {
 				if n := scope.NormalizeRepoURL(r); n != "" {
 					normalizedRepos = append(normalizedRepos, n)
-				}
-			}
-			if vault.PersistsRepoHost(v) {
-				noteOut := ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
-				for _, r := range repos {
-					warnAliasRepoURL(r, noteOut)
 				}
 			}
 
@@ -172,6 +164,15 @@ are added — you are not added automatically.`,
 				return err
 			}
 			status.Done("Created team " + team.Name)
+			// Same alias note as `team repo add`, only for backends that
+			// persist the host, and only after the write succeeded so
+			// "storing …" never describes a row that wasn't created.
+			if vault.PersistsRepoHost(v) {
+				noteOut := ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
+				for _, r := range repos {
+					warnAliasRepoURL(r, noteOut)
+				}
+			}
 			return nil
 		},
 	}
