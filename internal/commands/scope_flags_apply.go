@@ -99,16 +99,42 @@ func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Outpu
 // (Host github.com / HostName ssh.github.com — the input is already
 // correct), and only the user can tell which one theirs is.
 func warnAliasRepoURL(repoURL string, styledOut *ui.Output) {
+	if mapping, ok := aliasNoteParts(repoURL); ok {
+		styledOut.Info(fmt.Sprintf(
+			"%s; storing %s — pass the real hostname if %q is a local-only alias",
+			mapping.prefix, mapping.literal, mapping.literalHost))
+	}
+}
+
+// warnAliasRepoURLForRemoval is the removal-path variant: nothing is
+// stored by a removal, so the note only states what the input will be
+// matched against — which explains a subsequent "no repository
+// matching" error when the row was written under a different form.
+func warnAliasRepoURLForRemoval(repoURL string, styledOut *ui.Output) {
+	if mapping, ok := aliasNoteParts(repoURL); ok {
+		styledOut.Info(fmt.Sprintf("%s; matching against %s", mapping.prefix, mapping.literal))
+	}
+}
+
+type aliasNote struct {
+	prefix      string
+	literal     string
+	literalHost string
+}
+
+func aliasNoteParts(repoURL string) (aliasNote, bool) {
 	resolved := scope.AliasResolvedForm(repoURL)
 	if resolved == "" {
-		return
+		return aliasNote{}, false
 	}
-	stored := scope.NormalizeRepoURL(repoURL)
-	literalHost, _, _ := strings.Cut(stored, "/")
+	literal := scope.NormalizeRepoURL(repoURL)
+	literalHost, _, _ := strings.Cut(literal, "/")
 	resolvedHost, _, _ := strings.Cut(resolved, "/")
-	styledOut.Info(fmt.Sprintf(
-		"~/.ssh/config maps %q to %q on this machine; storing %s — pass the real hostname if %q is a local-only alias",
-		literalHost, resolvedHost, stored, literalHost))
+	return aliasNote{
+		prefix:      fmt.Sprintf("~/.ssh/config maps %q to %q on this machine", literalHost, resolvedHost),
+		literal:     literal,
+		literalHost: literalHost,
+	}, true
 }
 
 // unionTargets concatenates two target lists, deduping by display identity so

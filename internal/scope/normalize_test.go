@@ -134,37 +134,60 @@ func TestMatchRepoURLs_AliasResolvesToStoredScope(t *testing.T) {
 	}
 }
 
-func TestMatchRepoURLs_LegacyPortedRows(t *testing.T) {
+func TestMatchStoredRepoURL_LegacyPortedRows(t *testing.T) {
 	withSSHHostStub(t, nil)
 
 	// The pre-alias normalizer persisted scope rows with the port kept
 	// ("gitea.corp.com:3000/acme/x"); those rows must keep matching the
-	// live remotes they were written for. The portless reading is an
-	// extra match candidate, not a rewrite — NormalizeRepoURL keeps the
-	// stored value literal.
+	// live remotes they were written for. The portless reading applies
+	// to the STORED side only — never to the remote.
 	legacy := "gitea.corp.com:3000/acme/x"
 	for _, remote := range []string{
 		"https://gitea.corp.com:3000/acme/x.git",
 		"ssh://git@gitea.corp.com:2222/acme/x.git",
 		"https://gitea.corp.com/acme/x",
 	} {
-		if !MatchRepoURLs(legacy, remote) {
+		if !MatchStoredRepoURL(legacy, remote) {
 			t.Errorf("legacy stored row %q should match remote %q", legacy, remote)
 		}
 	}
 
-	got := NormalizeRepoURLCandidates(legacy)
-	want := []string{"gitea.corp.com/3000/acme/x", "gitea.corp.com/acme/x"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("candidates(%q) = %v, want %v", legacy, got, want)
-	}
-
-	// A userless value whose numeric segment is not port-like (or with
-	// userinfo present) gets no portless reading.
-	for _, in := range []string{"github.com:123/repo", "git@gitea.corp.com:3000/acme/x"} {
+	// Candidates never include the portless reading — a live remote
+	// with a numeric path segment keeps only its literal form, so an
+	// asset scoped to the unrelated top-level repo can't match it.
+	for _, in := range []string{
+		"gitea.corp.com:2024/team/app",
+		"github.com:123/repo",
+		"git@gitea.corp.com:3000/acme/x",
+	} {
 		if got := NormalizeRepoURLCandidates(in); len(got) != 1 {
 			t.Errorf("candidates(%q) = %v, want only the literal form", in, got)
 		}
+	}
+	if MatchStoredRepoURL("gitea.corp.com/team/app", "gitea.corp.com:2024/team/app") {
+		t.Error("a remote's numeric path segment must not be reinterpreted as a port")
+	}
+
+	// One-segment legacy rows are outside the reconciliation rule (the
+	// documented ambiguity trade against numeric owners).
+	if MatchStoredRepoURL("ghe.corp:2222/tools", "https://ghe.corp/tools") {
+		t.Error("one-segment legacy row should keep only its literal reading")
+	}
+}
+
+func TestStoredRepoRowMatches(t *testing.T) {
+	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
+
+	if !StoredRepoRowMatches("gitea.corp.com:3000/acme/x", "https://gitea.corp.com:3000/acme/x") {
+		t.Error("legacy ported row should match its live https form")
+	}
+	if !StoredRepoRowMatches("github.com/acme/x", "git@github.com:acme/x.git") {
+		t.Error("normalized-equal forms should match")
+	}
+	// Write paths must not consult ssh config: the workgit alias would
+	// resolve to github.com for candidate matching, but not here.
+	if StoredRepoRowMatches("github.com/acme/x", "git@workgit:acme/x.git") {
+		t.Error("write-path comparison must ignore ~/.ssh/config aliases")
 	}
 }
 

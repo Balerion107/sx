@@ -486,13 +486,13 @@ func commonAddTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, repoU
 		if normalized == "" {
 			return nil, errors.New("cannot add empty repository URL")
 		}
-		// Normalized comparison so rows stored under an older
-		// normalization (or another URL form) don't get duplicated.
-		// Deliberately NOT MatchRepoURLs: candidate matching consults
-		// the operator's ~/.ssh/config, and a vault write must produce
-		// the same result on every machine.
+		// StoredRepoRowMatches so another URL form of a listed repo —
+		// including rows stored by older sx versions that kept the port —
+		// doesn't get duplicated. Deliberately NOT MatchRepoURLs:
+		// candidate matching consults the operator's ~/.ssh/config, and
+		// a vault write must produce the same result on every machine.
 		if slices.ContainsFunc(team.Repositories, func(existing string) bool {
-			return scope.NormalizeRepoURL(existing) == normalized
+			return scope.StoredRepoRowMatches(existing, normalized)
 		}) {
 			return nil, nil
 		}
@@ -516,17 +516,17 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 		if err != nil {
 			return nil, err
 		}
-		needle := scope.NormalizeRepoURL(strings.TrimSpace(repoURL))
-		// Normalized removal so rows stored under an older normalization
-		// (or another URL form) still resolve to the same repository.
-		// Deliberately NOT MatchRepoURLs: candidate matching consults
-		// the operator's ~/.ssh/config, and a vault write must produce
-		// the same result on every machine. Several rows can match one
-		// needle; the audit event records the rows actually deleted, and
-		// a no-op emits no event at all.
+		needle := strings.TrimSpace(repoURL)
+		// StoredRepoRowMatches so any URL form of a listed repo —
+		// including rows stored by older sx versions that kept the port —
+		// resolves to the same row. Deliberately NOT MatchRepoURLs:
+		// candidate matching consults the operator's ~/.ssh/config, and
+		// a vault write must produce the same result on every machine.
+		// Several rows can match one needle; the audit event records the
+		// rows actually deleted, and a no-op emits no event at all.
 		var removed []string
 		team.Repositories = slices.DeleteFunc(slices.Clone(team.Repositories), func(existing string) bool {
-			if scope.NormalizeRepoURL(existing) == needle {
+			if scope.StoredRepoRowMatches(existing, needle) {
 				removed = append(removed, existing)
 				return true
 			}
@@ -1571,12 +1571,13 @@ func installScopeMatches(scopeRow, needle manifest.Scope) bool {
 		// org scopes are a meaningful thing to match.
 		return false
 	case manifest.ScopeKindRepo:
-		// Normalized equality, not MatchRepoURLs: this drives scope-row
+		// StoredRepoRowMatches, not MatchRepoURLs: this drives scope-row
 		// add/remove (vault writes), which must resolve identically on
-		// every machine rather than through the operator's ~/.ssh/config.
-		return scope.NormalizeRepoURL(scopeRow.Repo) == scope.NormalizeRepoURL(needle.Repo)
+		// every machine rather than through the operator's ~/.ssh/config,
+		// while still recognizing rows stored with a legacy kept port.
+		return scope.StoredRepoRowMatches(scopeRow.Repo, needle.Repo)
 	case manifest.ScopeKindPath:
-		return scope.NormalizeRepoURL(scopeRow.Repo) == scope.NormalizeRepoURL(needle.Repo) && slices.Equal(canonicalPaths(scopeRow.Paths), canonicalPaths(needle.Paths))
+		return scope.StoredRepoRowMatches(scopeRow.Repo, needle.Repo) && slices.Equal(canonicalPaths(scopeRow.Paths), canonicalPaths(needle.Paths))
 	case manifest.ScopeKindTeam:
 		return scopeRow.Team == needle.Team
 	case manifest.ScopeKindUser:

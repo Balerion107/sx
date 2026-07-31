@@ -101,12 +101,14 @@ func (m *Matcher) NearMissScope(asset *lockfile.Asset) (repo string, ok bool) {
 	return "", false
 }
 
-// matchesRepoURL checks if the asset's repo matches the current repo
+// matchesRepoURL checks if the asset's repo matches the current repo.
+// The asset side is the stored value, so it gets the stored-side
+// legacy ported reading on top of the symmetric comparison.
 func (m *Matcher) matchesRepoURL(assetRepo string) bool {
 	if m.currentScope.RepoURL == "" || assetRepo == "" {
 		return false
 	}
-	return MatchRepoURLs(m.currentScope.RepoURL, assetRepo)
+	return MatchStoredRepoURL(assetRepo, m.currentScope.RepoURL)
 }
 
 // matchesPath checks if the asset's path matches the current path
@@ -150,7 +152,7 @@ func MatchRepoURLs(url1, url2 string) bool {
 // https://host/x. Strings that don't look like a URL are returned
 // cleaned but otherwise as-is.
 func NormalizeRepoURL(repoURL string) string {
-	cleaned := cleanRepoURL(repoURL)
+	cleaned := CleanRepoURL(repoURL)
 
 	if host, path, ok := splitSCPLike(cleaned); ok {
 		return host + "/" + strings.TrimLeft(path, "/")
@@ -164,15 +166,17 @@ func NormalizeRepoURL(repoURL string) string {
 	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
 }
 
-// LooksLikeSameRepo reports whether two repo URLs name the same
-// owner/repo path even though they don't fully match — the signature
-// of a host form that failed to normalize (an unresolvable alias, a
-// different host for the same project). Full matches return false.
-func LooksLikeSameRepo(url1, url2 string) bool {
-	if MatchRepoURLs(url1, url2) {
+// LooksLikeSameRepo reports whether the caller's remote and a stored
+// scope repo name the same owner/repo path even though they don't
+// fully match — the signature of a host form that failed to normalize
+// (an unresolvable alias, a different host for the same project).
+// Full matches, including via the stored side's legacy ported
+// reading, return false.
+func LooksLikeSameRepo(remote, stored string) bool {
+	if MatchStoredRepoURL(stored, remote) {
 		return false
 	}
-	p1, p2 := repoPathPortion(url1), repoPathPortion(url2)
+	p1, p2 := repoPathPortion(remote), repoPathPortion(stored)
 	return p1 != "" && p1 == p2
 }
 
@@ -186,11 +190,11 @@ func repoPathPortion(repoURL string) string {
 	return ""
 }
 
-// cleanRepoURL applies the shared pre-normalization cleanup: trim,
+// CleanRepoURL applies the shared pre-normalization cleanup: trim,
 // lowercase, and drop a trailing slash and ".git". Every function
 // that inspects repo URL structure must clean through here so host
 // extraction and normalization can never diverge.
-func cleanRepoURL(repoURL string) string {
+func CleanRepoURL(repoURL string) string {
 	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
 	cleaned = strings.TrimSuffix(cleaned, "/")
 	return strings.TrimSuffix(cleaned, ".git")
@@ -201,16 +205,45 @@ func cleanRepoURL(repoURL string) string {
 // whose host is an alias defined in the user's ~/.ssh/config, the
 // normalization with the alias replaced by its configured HostName.
 // A remote like git@workgit:acme/x (Host workgit / HostName
-// github.com) therefore also yields github.com/acme/x.
+// github.com) therefore also yields github.com/acme/x. The legacy
+// ported reading is deliberately NOT included — only stored vault
+// rows can carry that pre-alias shape, so it is expanded exclusively
+// on the stored side (MatchStoredRepoURL); reinterpreting a live
+// remote's numeric path segment would create false matches.
 func NormalizeRepoURLCandidates(repoURL string) []string {
 	out := []string{NormalizeRepoURL(repoURL)}
-	if legacy := legacyPortedForm(repoURL); legacy != "" && !slices.Contains(out, legacy) {
-		out = append(out, legacy)
-	}
 	if resolved := AliasResolvedForm(repoURL); resolved != "" && !slices.Contains(out, resolved) {
 		out = append(out, resolved)
 	}
 	return out
+}
+
+// MatchStoredRepoURL reports whether a stored scope row names the same
+// repository as the caller's remote. On top of the symmetric
+// MatchRepoURLs comparison, the STORED side alone is also read under
+// its legacy ported form ("gitea.corp.com:3000/acme/x", written by
+// the pre-alias normalizer which kept ports) — asymmetric so a live
+// remote with a genuine numeric path segment is never reinterpreted.
+func MatchStoredRepoURL(stored, remote string) bool {
+	if MatchRepoURLs(stored, remote) {
+		return true
+	}
+	legacy := legacyPortedForm(stored)
+	return legacy != "" && slices.Contains(NormalizeRepoURLCandidates(remote), legacy)
+}
+
+// StoredRepoRowMatches reports whether a stored repo row and a
+// user-supplied needle name the same repository, for vault WRITE
+// paths: normalized equality plus the stored row's legacy ported
+// reading, and deliberately no ~/.ssh/config involvement so the same
+// mutation resolves identically on every machine.
+func StoredRepoRowMatches(stored, needle string) bool {
+	n := NormalizeRepoURL(needle)
+	if NormalizeRepoURL(stored) == n {
+		return true
+	}
+	legacy := legacyPortedForm(stored)
+	return legacy != "" && legacy == n
 }
 
 // AliasResolvedForm returns the normalized form of an SSH remote with
@@ -243,7 +276,7 @@ func AliasResolvedForm(repoURL string) string {
 // path segment (gitolite year directories, numeric subgroups) is
 // never silently dropped from stored data.
 func legacyPortedForm(repoURL string) string {
-	cleaned := cleanRepoURL(repoURL)
+	cleaned := CleanRepoURL(repoURL)
 	if strings.Contains(cleaned, "@") {
 		return ""
 	}
@@ -275,7 +308,7 @@ func SetSSHHostLookup(fn func(alias string) (string, bool)) (restore func()) {
 // sshHostAndPath extracts the host and repo path from an SSH remote
 // (scp-style or ssh://). Returns "" for non-SSH URLs.
 func sshHostAndPath(repoURL string) (host, path string) {
-	cleaned := cleanRepoURL(repoURL)
+	cleaned := CleanRepoURL(repoURL)
 
 	if h, p, ok := splitSCPLike(cleaned); ok {
 		return h, p

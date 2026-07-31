@@ -650,10 +650,16 @@ func normalizeEmails(in []string) []string {
 	return out
 }
 
+// normalizeRepos cleans team repository rows without collapsing them:
+// trim, lowercase, drop ".git"/trailing slash — never the full
+// scope.NormalizeRepoURL rewrite. Marshal runs this on EVERY manifest
+// write, and a legacy ported row ("gitea.corp.com:3000/acme/x") must
+// keep its colon so match-time reconciliation (the stored-side legacy
+// reading in scope.MatchStoredRepoURL) still recognizes it.
 func normalizeRepos(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, r := range in {
-		n := scope.NormalizeRepoURL(strings.TrimSpace(r))
+		n := scope.CleanRepoURL(r)
 		if n != "" {
 			out = append(out, n)
 		}

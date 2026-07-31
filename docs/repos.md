@@ -27,10 +27,15 @@ GitHub Enterprise and self-hosted git servers), and userinfo, ports,
 and a trailing `.git` are ignored. Ignoring ports means sx assumes
 one git server per hostname — two servers on different ports of the
 same host resolve to the same scope. Scope rows written by older sx
-versions could keep the port (`gitea.corp.com:3000/acme/x`); those
-are matched under both readings — with and without the port-like
-segment — rather than rewritten, so a genuine numeric path segment
-in stored data is never dropped. SSH host aliases from
+versions could keep the port (`gitea.corp.com:3000/acme/x`); such a
+stored row is matched under both readings — with and without the
+port-like segment — rather than rewritten, so a genuine numeric path
+segment is never dropped from stored data. The portless reading
+applies only to the stored side of a comparison (a live remote's
+numeric segment is never reinterpreted) and only when at least
+`owner/repo` follows the port-like segment — a one-segment legacy
+row like `ghe.corp:2222/tools` keeps its literal reading only and
+should be re-added with the current URL form. SSH host aliases from
 `~/.ssh/config` are resolved too: with `Host workgit` /
 `HostName github.com` configured, a clone whose remote is
 `git@workgit:acme/x.git` matches a scope stored as
