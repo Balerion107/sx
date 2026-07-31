@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sleuth-io/sx/v2/internal/git"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
@@ -87,12 +88,7 @@ func (m *Matcher) matchesRepoURL(assetRepo string) bool {
 	if m.currentScope.RepoURL == "" || assetRepo == "" {
 		return false
 	}
-
-	// Normalize both URLs for comparison
-	currentNormalized := NormalizeRepoURL(m.currentScope.RepoURL)
-	assetNormalized := NormalizeRepoURL(assetRepo)
-
-	return currentNormalized == assetNormalized
+	return MatchRepoURLs(m.currentScope.RepoURL, assetRepo)
 }
 
 // matchesPath checks if the asset's path matches the current path
@@ -111,72 +107,108 @@ func (m *Matcher) matchesPath(assetPath string) bool {
 	return strings.HasPrefix(currentPath, assetPath) || currentPath == assetPath
 }
 
-// MatchRepoURLs checks if two repository URLs refer to the same repository
+// MatchRepoURLs checks if two repository URLs refer to the same repository.
+// Each side is expanded into its normalized candidate set (the URL as
+// written, plus its SSH alias resolution if one applies) and the URLs
+// match when any candidates coincide. Comparing candidate sets means
+// alias resolution can only widen matching — it never breaks a pair
+// that already matched on the literal host.
 func MatchRepoURLs(url1, url2 string) bool {
-	return NormalizeRepoURL(url1) == NormalizeRepoURL(url2)
-}
-
-// NormalizeRepoURL normalizes a repository URL for comparison
-func NormalizeRepoURL(repoURL string) string {
-	// Normalize and clean the URL
-	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
-	cleaned = strings.TrimSuffix(cleaned, ".git")
-
-	// Extract host for checking if we should normalize SSH
-	host := extractHost(cleaned)
-
-	// Only normalize SSH URLs for known public git services
-	if strings.HasPrefix(cleaned, "git@") && isKnownGitService(host) {
-		// Extract host and path from git@host:owner/repo format
-		cleaned = strings.TrimPrefix(cleaned, "git@")
-		cleaned = strings.Replace(cleaned, ":", "/", 1) // Replace first : with /
-		return cleaned
-	}
-
-	// Handle HTTPS URLs
-	u, err := url.Parse(cleaned)
-	if err != nil {
-		// If parsing fails, return as-is
-		return cleaned
-	}
-
-	// Return host + path (e.g., "github.com/owner/repo")
-	return strings.TrimPrefix(u.Host+u.Path, "/")
-}
-
-// isKnownGitService checks if a host is a known public git service
-func isKnownGitService(host string) bool {
-	knownServices := []string{
-		"github.com",
-		"gitlab.com",
-		"bitbucket.org",
-		"codeberg.org",
-	}
-
-	for _, service := range knownServices {
-		if strings.Contains(host, service) {
+	for _, a := range NormalizeRepoURLCandidates(url1) {
+		if slices.Contains(NormalizeRepoURLCandidates(url2), a) {
 			return true
 		}
 	}
 	return false
 }
 
-// extractHost extracts the host from a git URL
-func extractHost(repoURL string) string {
-	if after, ok := strings.CutPrefix(repoURL, "git@"); ok {
-		// git@github.com:owner/repo
-		parts := strings.SplitN(after, ":", 2)
-		if len(parts) > 0 {
-			return parts[0]
-		}
+// NormalizeRepoURL normalizes a repository URL for comparison. All
+// transports of the same repository reduce to "host/owner/repo":
+// scp-style SSH remotes (git@host:owner/repo) are handled for any
+// host, and userinfo, ports, a trailing ".git", and trailing slashes
+// are dropped. Strings that don't look like a URL are returned
+// cleaned but otherwise as-is.
+func NormalizeRepoURL(repoURL string) string {
+	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
+	cleaned = strings.TrimSuffix(cleaned, "/")
+	cleaned = strings.TrimSuffix(cleaned, ".git")
+
+	if host, path, ok := splitSCPLike(cleaned); ok {
+		return host + "/" + strings.TrimLeft(path, "/")
 	}
 
-	u, err := url.Parse(repoURL)
-	if err == nil {
-		return u.Host
+	u, err := url.Parse(cleaned)
+	if err != nil || u.Host == "" {
+		// Not URL-shaped (or already normalized to host/path form).
+		return cleaned
 	}
+	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
+}
 
-	return ""
+// NormalizeRepoURLCandidates returns every normalized form repoURL can
+// take: the plain normalization and, when the URL is an SSH remote
+// whose host is an alias defined in the user's ~/.ssh/config, the
+// normalization with the alias replaced by its configured HostName.
+// A remote like git@workgit:acme/x (Host workgit / HostName
+// github.com) therefore also yields github.com/acme/x.
+func NormalizeRepoURLCandidates(repoURL string) []string {
+	base := NormalizeRepoURL(repoURL)
+
+	host, path := sshHostAndPath(repoURL)
+	if host == "" {
+		return []string{base}
+	}
+	resolved, ok := lookupSSHHostname(host)
+	resolved = strings.ToLower(strings.TrimSpace(resolved))
+	if !ok || resolved == "" || resolved == host {
+		return []string{base}
+	}
+	return []string{base, resolved + "/" + strings.TrimLeft(path, "/")}
+}
+
+// lookupSSHHostname resolves an SSH host alias to its configured
+// HostName. Package-level so tests can stub the ~/.ssh/config lookup.
+var lookupSSHHostname = git.SSHConfigHostname
+
+// sshHostAndPath extracts the host and repo path from an SSH remote
+// (scp-style or ssh://), already cleaned the same way NormalizeRepoURL
+// cleans its input. Returns "" for non-SSH URLs.
+func sshHostAndPath(repoURL string) (host, path string) {
+	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
+	cleaned = strings.TrimSuffix(cleaned, "/")
+	cleaned = strings.TrimSuffix(cleaned, ".git")
+
+	if h, p, ok := splitSCPLike(cleaned); ok {
+		return h, p
+	}
+	u, err := url.Parse(cleaned)
+	if err != nil || u.Host == "" {
+		return "", ""
+	}
+	switch u.Scheme {
+	case "ssh", "git+ssh":
+		return u.Hostname(), strings.TrimSuffix(strings.TrimPrefix(u.Path, "/"), "/")
+	}
+	return "", ""
+}
+
+// splitSCPLike splits an scp-style remote (user@host:path) into host
+// and path. The host part cannot carry a port in this syntax, and a
+// "://" anywhere means the string is a real URL instead.
+func splitSCPLike(s string) (host, path string, ok bool) {
+	if strings.Contains(s, "://") {
+		return "", "", false
+	}
+	at := strings.IndexByte(s, '@')
+	if at <= 0 {
+		return "", "", false
+	}
+	rest := s[at+1:]
+	colon := strings.IndexByte(rest, ':')
+	if colon <= 0 || colon == len(rest)-1 {
+		return "", "", false
+	}
+	return rest[:colon], rest[colon+1:], true
 }
 
 // normalizeRepoPath normalizes a repository-relative path

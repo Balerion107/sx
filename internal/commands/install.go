@@ -182,10 +182,11 @@ func findAssetOwningProfile(ctx context.Context, assetName string) string {
 // implicit by absence). Single-profile output is left unchanged so
 // existing scripts that parse the `pip freeze`-style format keep
 // working.
-func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool) {
+func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, scopeSkipped int) {
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
+		printDryRunScopeSkips(w, scopeSkipped)
 		return
 	}
 
@@ -194,6 +195,7 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 	if s := describeCurrentScope(env.CurrentScope); s != "" {
 		fmt.Fprintln(w, "# Current scope:", s)
 	}
+	printDryRunScopeSkips(w, scopeSkipped)
 	fmt.Fprintln(w)
 
 	for _, a := range assets {
@@ -204,6 +206,25 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 		} else {
 			fmt.Fprintf(w, "%s==%s  # %s; scope=%s\n", a.Name, a.Version, a.Type, scopeDesc)
 		}
+	}
+}
+
+// reportScopeSkips surfaces scope-mismatch exclusions so scoped assets
+// never vanish silently (e.g. a remote URL form failing to match a
+// stored scope).
+func reportScopeSkips(scopeSkipped int, styledOut *ui.Output) {
+	if scopeSkipped > 0 {
+		styledOut.Muted(fmt.Sprintf("%d asset(s) skipped: scope does not match this context", scopeSkipped))
+	}
+}
+
+// printDryRunScopeSkips notes assets excluded because their scope did
+// not match the current context, so a clone whose remote fails to
+// match (wrong URL form, different repo) is diagnosable from the
+// preview alone.
+func printDryRunScopeSkips(w io.Writer, scopeSkipped int) {
+	if scopeSkipped > 0 {
+		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", scopeSkipped)
 	}
 }
 
@@ -328,7 +349,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// for "first-active" is whichever profile appears first in
 	// profileLocks (already ordered per config.GetActiveProfileNames).
 	matcherScope := scope.NewMatcher(env.CurrentScope)
-	sortedAssets, assetOrigin, conflicts, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
+	sortedAssets, assetOrigin, conflicts, scopeSkipped, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
 	if err != nil {
 		return err
 	}
@@ -353,9 +374,11 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// --dry-run: print the resolved asset list and exit before we touch
 	// the tracker, download anything, or write to client directories.
 	if dryRun {
-		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1)
+		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, scopeSkipped)
 		return nil
 	}
+
+	reportScopeSkips(scopeSkipped, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)

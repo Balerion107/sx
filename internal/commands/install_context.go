@@ -141,24 +141,31 @@ func addForceEnabledClients(cfg *config.Config, registry *clients.Registry, exis
 	return existing
 }
 
-// filterAssetsByScope filters assets to those applicable to the current context
-func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher) []*lockfile.Asset {
-	var applicableAssets []*lockfile.Asset
+// filterAssetsByScope filters assets to those applicable to the current
+// context. scopeSkipped counts assets some target client supports that
+// were excluded only because their scope doesn't match the current
+// context — callers surface it so scoped assets never disappear
+// silently (e.g. an SSH remote failing to match an https scope).
+func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher) (applicableAssets []*lockfile.Asset, scopeSkipped int) {
 	for i := range lf.Assets {
 		asset := &lf.Assets[i]
-		if isAssetApplicable(asset, targetClients, matcherScope) {
-			applicableAssets = append(applicableAssets, asset)
+		if !isAssetSupportedByAnyClient(asset, targetClients) {
+			continue
 		}
+		if !matcherScope.MatchesAsset(asset) {
+			scopeSkipped++
+			continue
+		}
+		applicableAssets = append(applicableAssets, asset)
 	}
-	return applicableAssets
+	return applicableAssets, scopeSkipped
 }
 
-// isAssetApplicable checks if an asset is supported by any target client and matches scope
-func isAssetApplicable(asset *lockfile.Asset, targetClients []clients.Client, matcherScope *scope.Matcher) bool {
+// isAssetSupportedByAnyClient checks if any target client both matches
+// the asset's client list and supports its type
+func isAssetSupportedByAnyClient(asset *lockfile.Asset, targetClients []clients.Client) bool {
 	for _, client := range targetClients {
-		if asset.MatchesClient(client.ID()) &&
-			client.SupportsAssetType(asset.Type) &&
-			matcherScope.MatchesAsset(asset) {
+		if asset.MatchesClient(client.ID()) && client.SupportsAssetType(asset.Type) {
 			return true
 		}
 	}

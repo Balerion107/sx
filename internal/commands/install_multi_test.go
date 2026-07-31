@@ -51,7 +51,7 @@ func TestMergeApplicableAssets_DefaultFirstWins(t *testing.T) {
 		buildProfileLock("work", "shared", "work-only"),
 		buildProfileLock("personal", "shared", "personal-only"),
 	}
-	sortedAssets, origin, conflicts, err := mergeApplicableAssets(locks, clientList, matcher)
+	sortedAssets, origin, conflicts, _, err := mergeApplicableAssets(locks, clientList, matcher)
 	if err != nil {
 		t.Fatalf("mergeApplicableAssets: %v", err)
 	}
@@ -87,9 +87,12 @@ func TestMergeApplicableAssets_ThreeWayConflict(t *testing.T) {
 		buildProfileLock("b", "dup"),
 		buildProfileLock("c", "dup"),
 	}
-	_, _, conflicts, err := mergeApplicableAssets(locks, clientList, matcher)
+	_, _, conflicts, scopeSkipped, err := mergeApplicableAssets(locks, clientList, matcher)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
+	}
+	if scopeSkipped != 0 {
+		t.Fatalf("scopeSkipped = %d, want 0 for global assets", scopeSkipped)
 	}
 	if len(conflicts) != 1 {
 		t.Fatalf("expected single conflict record, got %d", len(conflicts))

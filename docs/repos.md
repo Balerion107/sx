@@ -22,7 +22,13 @@ clone of the named repo. Outside that repo, the asset is invisible.
 
 Repo URLs are normalized before comparison — `git@github.com:acme/x`,
 `https://github.com/acme/x`, and `https://github.com/acme/x.git` all
-resolve to the same scope row.
+resolve to the same scope row. This applies to any host (including
+GitHub Enterprise and self-hosted git servers), and userinfo, ports,
+and a trailing `.git` are ignored. SSH host aliases from
+`~/.ssh/config` are resolved too: with `Host workgit` /
+`HostName github.com` configured, a clone whose remote is
+`git@workgit:acme/x.git` matches a scope stored as
+`https://github.com/acme/x`.
 
 > **Vault vs project:** the repo URL in `--repo` is your *project's*
 > git remote — the codebase where you want the asset installed — not
