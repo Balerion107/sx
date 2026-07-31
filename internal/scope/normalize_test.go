@@ -39,12 +39,11 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"ssh scheme with port", "ssh://git@github.com:22/acme/x.git", "github.com/acme/x"},
 		{"ssh nondefault port", "ssh://git@gitea.corp.com:2222/acme/x.git", "gitea.corp.com/acme/x"},
 		{"already normalized", "github.com/acme/x", "github.com/acme/x"},
-		{"legacy ported https form", "gitea.corp.com:3000/acme/x", "gitea.corp.com/acme/x"},
-		{"legacy ported ssh form", "ghe.corp:2222/acme/x", "ghe.corp/acme/x"},
+		{"legacy ported form kept literal", "gitea.corp.com:3000/acme/x", "gitea.corp.com/3000/acme/x"},
 		{"host and port only", "gitea.corp.com:3000", "gitea.corp.com:3000"},
 		{"numeric owner with user", "git@github.com:123/repo.git", "github.com/123/repo"},
 		{"numeric owner userless", "github.com:123/repo", "github.com/123/repo"},
-		{"long numeric owner userless", "github.com:99999999/repo", "github.com/99999999/repo"},
+		{"numeric path segment kept", "gitea.corp.com:2024/team/app", "gitea.corp.com/2024/team/app"},
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
 		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},
@@ -61,21 +60,21 @@ func TestNormalizeRepoURL(t *testing.T) {
 func TestMatchRepoURLs_CrossTransport(t *testing.T) {
 	withSSHHostStub(t, nil)
 
-	stored := "https://github.com/kintsugi-tax/infra-ops"
+	stored := "https://github.com/acme/infra-ops"
 	remotes := []string{
-		"git@github.com:kintsugi-tax/infra-ops.git",
-		"github.com:kintsugi-tax/infra-ops.git",
-		"ssh://git@github.com/kintsugi-tax/infra-ops.git",
-		"ssh://git@github.com:22/kintsugi-tax/infra-ops.git",
-		"https://github.com/kintsugi-tax/infra-ops.git",
-		"HTTPS://GitHub.com/Kintsugi-Tax/Infra-Ops",
+		"git@github.com:acme/infra-ops.git",
+		"github.com:acme/infra-ops.git",
+		"ssh://git@github.com/acme/infra-ops.git",
+		"ssh://git@github.com:22/acme/infra-ops.git",
+		"https://github.com/acme/infra-ops.git",
+		"HTTPS://GitHub.com/Acme/Infra-Ops",
 	}
 	for _, remote := range remotes {
 		if !MatchRepoURLs(remote, stored) {
 			t.Errorf("MatchRepoURLs(%q, %q) = false, want true", remote, stored)
 		}
 	}
-	if MatchRepoURLs("git@github.com:kintsugi-tax/other.git", stored) {
+	if MatchRepoURLs("git@github.com:acme/other.git", stored) {
 		t.Error("different repos matched")
 	}
 }
@@ -123,11 +122,11 @@ func TestNormalizeRepoURLCandidates_AliasIsRealHost(t *testing.T) {
 func TestMatchRepoURLs_AliasResolvesToStoredScope(t *testing.T) {
 	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
 
-	stored := "https://github.com/kintsugi-tax/infra-ops"
+	stored := "https://github.com/acme/infra-ops"
 	for _, remote := range []string{
-		"git@workgit:kintsugi-tax/infra-ops.git",
-		"workgit:kintsugi-tax/infra-ops.git",
-		"ssh://git@workgit/kintsugi-tax/infra-ops.git",
+		"git@workgit:acme/infra-ops.git",
+		"workgit:acme/infra-ops.git",
+		"ssh://git@workgit/acme/infra-ops.git",
 	} {
 		if !MatchRepoURLs(remote, stored) {
 			t.Errorf("alias remote %q should match %q", remote, stored)
@@ -140,7 +139,9 @@ func TestMatchRepoURLs_LegacyPortedRows(t *testing.T) {
 
 	// The pre-alias normalizer persisted scope rows with the port kept
 	// ("gitea.corp.com:3000/acme/x"); those rows must keep matching the
-	// live remotes they were written for.
+	// live remotes they were written for. The portless reading is an
+	// extra match candidate, not a rewrite — NormalizeRepoURL keeps the
+	// stored value literal.
 	legacy := "gitea.corp.com:3000/acme/x"
 	for _, remote := range []string{
 		"https://gitea.corp.com:3000/acme/x.git",
@@ -149,6 +150,20 @@ func TestMatchRepoURLs_LegacyPortedRows(t *testing.T) {
 	} {
 		if !MatchRepoURLs(legacy, remote) {
 			t.Errorf("legacy stored row %q should match remote %q", legacy, remote)
+		}
+	}
+
+	got := NormalizeRepoURLCandidates(legacy)
+	want := []string{"gitea.corp.com/3000/acme/x", "gitea.corp.com/acme/x"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("candidates(%q) = %v, want %v", legacy, got, want)
+	}
+
+	// A userless value whose numeric segment is not port-like (or with
+	// userinfo present) gets no portless reading.
+	for _, in := range []string{"github.com:123/repo", "git@gitea.corp.com:3000/acme/x"} {
+		if got := NormalizeRepoURLCandidates(in); len(got) != 1 {
+			t.Errorf("candidates(%q) = %v, want only the literal form", in, got)
 		}
 	}
 }
@@ -172,12 +187,12 @@ func TestMatchesAsset_SSHRemote(t *testing.T) {
 
 	asset := &lockfile.Asset{
 		Name:   "infra-skill",
-		Scopes: []lockfile.Scope{{Repo: "https://github.com/kintsugi-tax/infra-ops"}},
+		Scopes: []lockfile.Scope{{Repo: "https://github.com/acme/infra-ops"}},
 	}
 	for _, remote := range []string{
-		"git@github.com:kintsugi-tax/infra-ops.git",
-		"git@workgit:kintsugi-tax/infra-ops.git",
-		"workgit:kintsugi-tax/infra-ops.git",
+		"git@github.com:acme/infra-ops.git",
+		"git@workgit:acme/infra-ops.git",
+		"workgit:acme/infra-ops.git",
 	} {
 		m := NewMatcher(&Scope{Type: TypeRepo, RepoURL: remote})
 		if !m.MatchesAsset(asset) {

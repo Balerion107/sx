@@ -328,6 +328,7 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Dissociate a repository from a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnAliasRepoURL(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
 				return v.RemoveTeamRepository(ctx, args[0], args[1])
 			},
@@ -335,7 +336,6 @@ func newTeamRepoCommand() *cobra.Command {
 				"Removed repo from team "+args[0])
 		},
 	}
-
 	cmd.AddCommand(addCmd, removeCmd)
 	return cmd
 }

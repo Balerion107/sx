@@ -6,9 +6,10 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
-// Mirrors the TOML skills.new (Pulse) emits from
-// _generate_lock_file_content + _generate_vaults_toml: scope rows carry
-// Repository.url, which is always the provider's https form.
+// Mirrors the TOML skills.new generates for a repo-scoped asset — see
+// pulse sleuth/apps/skills/service/assets/locking.py
+// (_generate_lock_file_content and _generate_vaults_toml). Scope rows
+// carry Repository.url, which is always the provider's https form.
 const pulseShapedLock = `lock-version = "1.0"
 version = "PLACEHOLDER"
 created-by = "sx-backend/1.0.0"
@@ -19,12 +20,12 @@ version = "7"
 type = "skill"
 
 [assets.source-http]
-url = "https://app.skills.new/api/skills/assets/infra-skill/7/infra-skill-7.zip"
+url = "https://skills.example.com/api/skills/assets/infra-skill/7/infra-skill-7.zip"
 hashes = {sha256 = "abc123"}
 size = 1234
 
 [[assets.scopes]]
-repo = "https://github.com/kintsugi-tax/infra-ops"
+repo = "https://github.com/acme/infra-ops"
 `
 
 func TestPulseLock_AliasRemoteMatches(t *testing.T) {
@@ -38,11 +39,23 @@ func TestPulseLock_AliasRemoteMatches(t *testing.T) {
 		t.Fatalf("unexpected lock shape: %+v", lf.Assets)
 	}
 
+	// Pin the parts of the generator's shape this client relies on —
+	// lockfile.Parse ignores unknown keys, so without these assertions
+	// a drifted source-http block would go unnoticed.
+	src := lf.Assets[0].SourceHTTP
+	if src == nil {
+		t.Fatal("source-http block did not parse")
+	}
+	if src.URL != "https://skills.example.com/api/skills/assets/infra-skill/7/infra-skill-7.zip" ||
+		src.Hashes["sha256"] != "abc123" || src.Size != 1234 {
+		t.Fatalf("source-http parsed unexpectedly: %+v", src)
+	}
+
 	for _, remote := range []string{
-		"git@workgit:kintsugi-tax/infra-ops.git", // alias, User in ssh config omitted or not
-		"workgit:kintsugi-tax/infra-ops.git",     // userless alias form
-		"ssh://git@workgit/kintsugi-tax/infra-ops.git",
-		"git@github.com:kintsugi-tax/infra-ops.git", // plain SSH, no alias involved
+		"git@workgit:acme/infra-ops.git", // alias with explicit user
+		"workgit:acme/infra-ops.git",     // userless alias form (User in ssh config)
+		"ssh://git@workgit/acme/infra-ops.git",
+		"git@github.com:acme/infra-ops.git", // plain SSH, no alias involved
 	} {
 		m := NewMatcher(&Scope{Type: TypeRepo, RepoURL: remote})
 		if !m.MatchesAsset(&lf.Assets[0]) {

@@ -213,8 +213,13 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 // current remote but a different host. Ordinary skips (assets scoped
 // to other repos, or repo-scoped assets while outside any repo) are
 // expected on every install and stay quiet here; --dry-run reports
-// the full count.
-func reportScopeSkips(skips *scopeSkips, styledOut *ui.Output) {
+// the full count. Hook mode stays silent entirely: Warning ignores
+// the silent flag, and a legitimately cross-forge scope would
+// otherwise print this on every prompt.
+func reportScopeSkips(skips *scopeSkips, hookMode bool, styledOut *ui.Output) {
+	if hookMode {
+		return
+	}
 	if n := skips.NearMiss(); n > 0 {
 		styledOut.Warning(fmt.Sprintf(
 			"%d skipped asset(s) are scoped to a repo with this repo's owner/repo path but a different host; run 'sx install --dry-run' for details", n))
@@ -402,7 +407,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 		return nil
 	}
 
-	reportScopeSkips(skips, styledOut)
+	reportScopeSkips(skips, hookMode, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)

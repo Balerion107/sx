@@ -203,17 +203,22 @@ func cleanRepoURL(repoURL string) string {
 // A remote like git@workgit:acme/x (Host workgit / HostName
 // github.com) therefore also yields github.com/acme/x.
 func NormalizeRepoURLCandidates(repoURL string) []string {
-	base := NormalizeRepoURL(repoURL)
-	if resolved := aliasResolvedForm(repoURL); resolved != "" && resolved != base {
-		return []string{base, resolved}
+	out := []string{NormalizeRepoURL(repoURL)}
+	if legacy := legacyPortedForm(repoURL); legacy != "" && !slices.Contains(out, legacy) {
+		out = append(out, legacy)
 	}
-	return []string{base}
+	if resolved := AliasResolvedForm(repoURL); resolved != "" && !slices.Contains(out, resolved) {
+		out = append(out, resolved)
+	}
+	return out
 }
 
-// aliasResolvedForm returns the normalized form of an SSH remote with
+// AliasResolvedForm returns the normalized form of an SSH remote with
 // its host replaced by the HostName from ~/.ssh/config, or "" when
-// the URL is not an SSH remote or no alias mapping applies.
-func aliasResolvedForm(repoURL string) string {
+// the URL is not an SSH remote or no alias mapping applies. Callers
+// use it both as a match candidate and to tell the user their host is
+// remapped locally.
+func AliasResolvedForm(repoURL string) string {
 	host, path := sshHostAndPath(repoURL)
 	if host == "" {
 		return ""
@@ -224,6 +229,33 @@ func aliasResolvedForm(repoURL string) string {
 		return ""
 	}
 	return resolved + "/" + strings.TrimLeft(path, "/")
+}
+
+// legacyPortedForm returns the port-dropped reading of a userless
+// scp-like value, or "" when that reading doesn't apply. Rows
+// persisted by the pre-alias normalizer kept the port
+// ("gitea.corp.com:3000/acme/x", "ghe.corp:2222/acme/x" from ssh://
+// remotes), came from u.Host (never userinfo), and were always
+// host:port/owner/repo. Emitting the portless reading as an extra
+// match candidate — instead of rewriting inside NormalizeRepoURL —
+// keeps those legacy rows matching today's remotes while the write
+// path stores exactly what the user passed, so a genuine numeric
+// path segment (gitolite year directories, numeric subgroups) is
+// never silently dropped from stored data.
+func legacyPortedForm(repoURL string) string {
+	cleaned := cleanRepoURL(repoURL)
+	if strings.Contains(cleaned, "@") {
+		return ""
+	}
+	host, path, ok := splitSCPLike(cleaned)
+	if !ok {
+		return ""
+	}
+	slash := strings.IndexByte(path, '/')
+	if slash <= 0 || !looksLikePort(path[:slash]) || strings.Count(path[slash+1:], "/") < 1 {
+		return ""
+	}
+	return host + "/" + path[slash+1:]
 }
 
 // lookupSSHHostname resolves an SSH host alias to its configured
@@ -266,17 +298,13 @@ func sshHostAndPath(repoURL string) (host, path string) {
 // the config. Single-character hosts are rejected so Windows drive
 // paths (c:/repos/x) are never mistaken for remotes.
 //
-// In userless input only, a leading port-like segment (all digits,
-// ≤ 65535) after the colon is dropped when at least owner/repo
-// remains behind it: rows persisted by the pre-alias normalizer kept
-// the port ("gitea.corp.com:3000/acme/x", "ghe.corp:2222/acme/x"
-// from ssh:// remotes), came from u.Host (never userinfo), and were
-// always host:port/owner/repo. A userless scp remote for an all-digit
-// owner is host:owner/repo — one segment shorter — so requiring two
-// segments after the candidate port separates the shapes:
-// "github.com:123/repo" keeps its numeric owner while
-// "gitea.corp.com:3000/acme/x" sheds its port. Remotes written with
-// "user@" never hit the port branch at all.
+// The split follows git's rule strictly — the path is never rewritten
+// here, so a numeric first path segment survives normalization and
+// the write path stores exactly what the user passed. (Legacy stored
+// rows that kept a port are reconciled at match time by
+// legacyPortedForm instead.) The one exception: userless "host:3000"
+// with a port-like remainder and no path is a host and port, not a
+// repository, and is rejected.
 func splitSCPLike(s string) (host, path string, ok bool) {
 	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
@@ -298,15 +326,7 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 		return "", "", false
 	}
 	path = s[colon+1:]
-	if !hadUser {
-		if slash := strings.IndexByte(path, '/'); slash > 0 && looksLikePort(path[:slash]) && strings.Count(path[slash+1:], "/") >= 1 {
-			path = path[slash+1:]
-		} else if looksLikePort(path) {
-			// "host:3000" is a host and port, not a repository.
-			return "", "", false
-		}
-	}
-	if path == "" {
+	if !hadUser && looksLikePort(path) {
 		return "", "", false
 	}
 	return host, path, true

@@ -533,7 +533,10 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 			return false
 		})
 		if len(removed) == 0 {
-			return nil, nil
+			// Surface the no-op instead of letting the command report
+			// success: an unmatched URL here is most often an SSH alias
+			// or typo, and a silent nothing-happened hides exactly that.
+			return nil, fmt.Errorf("no repository matching %q in team %s", strings.TrimSpace(repoURL), teamName)
 		}
 		if _, err := m.UpsertTeam(*team); err != nil {
 			return nil, err

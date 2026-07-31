@@ -26,7 +26,11 @@ resolve to the same scope row. This applies to any host (including
 GitHub Enterprise and self-hosted git servers), and userinfo, ports,
 and a trailing `.git` are ignored. Ignoring ports means sx assumes
 one git server per hostname — two servers on different ports of the
-same host resolve to the same scope. SSH host aliases from
+same host resolve to the same scope. Scope rows written by older sx
+versions could keep the port (`gitea.corp.com:3000/acme/x`); those
+are matched under both readings — with and without the port-like
+segment — rather than rewritten, so a genuine numeric path segment
+in stored data is never dropped. SSH host aliases from
 `~/.ssh/config` are resolved too: with `Host workgit` /
 `HostName github.com` configured, a clone whose remote is
 `git@workgit:acme/x.git` matches a scope stored as

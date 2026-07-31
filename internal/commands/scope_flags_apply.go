@@ -91,17 +91,24 @@ func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Outpu
 	}
 }
 
-// warnAliasRepoURL warns when a single repo URL's host is a local SSH
-// alias, naming the host it resolves to on this machine.
+// warnAliasRepoURL notes when ~/.ssh/config remaps a repo URL's host
+// on this machine. The note states the mapping and the stored value
+// without prescribing a change: the same two-candidate signal covers
+// both a genuine alias (workgit → github.com — the user should pass
+// the real hostname) and a transport rewrite of the real host
+// (Host github.com / HostName ssh.github.com — the input is already
+// correct), and only the user can tell which one theirs is.
 func warnAliasRepoURL(repoURL string, styledOut *ui.Output) {
-	candidates := scope.NormalizeRepoURLCandidates(repoURL)
-	if len(candidates) < 2 {
+	resolved := scope.AliasResolvedForm(repoURL)
+	if resolved == "" {
 		return
 	}
-	resolvedHost, _, _ := strings.Cut(candidates[1], "/")
-	styledOut.Warning(fmt.Sprintf(
-		"%s uses an SSH alias for %s on this machine; storing %s — pass the real hostname if teammates should match it",
-		repoURL, resolvedHost, candidates[0]))
+	stored := scope.NormalizeRepoURL(repoURL)
+	literalHost, _, _ := strings.Cut(stored, "/")
+	resolvedHost, _, _ := strings.Cut(resolved, "/")
+	styledOut.Info(fmt.Sprintf(
+		"~/.ssh/config maps %q to %q on this machine; storing %s — pass the real hostname if %q is a local-only alias",
+		literalHost, resolvedHost, stored, literalHost))
 }
 
 // unionTargets concatenates two target lists, deduping by display identity so
