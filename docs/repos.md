@@ -35,7 +35,12 @@ applies only to the stored side of a comparison (a live remote's
 numeric segment is never reinterpreted) and only when at least
 `owner/repo` follows the port-like segment — a one-segment legacy
 row like `ghe.corp:2222/tools` keeps its literal reading only and
-should be re-added with the current URL form. SSH host aliases from
+should be re-added with the current URL form. The flip side of the
+stored reading: a stored row whose numeric segment is a genuine path
+component (`gitea.corp.com:2024/team/app`) also matches clones of
+`gitea.corp.com/team/app` — if that distinction matters, store the
+row with an explicit scheme and slash form
+(`https://gitea.corp.com/2024/team/app`) so no scp reading applies. SSH host aliases from
 `~/.ssh/config` are resolved too: with `Host workgit` /
 `HostName github.com` configured, a clone whose remote is
 `git@workgit:acme/x.git` matches a scope stored as

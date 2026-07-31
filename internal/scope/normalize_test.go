@@ -173,6 +173,14 @@ func TestMatchStoredRepoURL_LegacyPortedRows(t *testing.T) {
 	if MatchStoredRepoURL("ghe.corp:2222/tools", "https://ghe.corp/tools") {
 		t.Error("one-segment legacy row should keep only its literal reading")
 	}
+
+	// The deliberate width of the stored-side reading: a stored row
+	// whose numeric segment is genuinely a path (not a legacy port)
+	// also matches the same path without it. Documented trade in
+	// docs/repos.md — losing this would lose every real legacy row.
+	if !MatchStoredRepoURL("gitea.corp.com:2024/team/app", "https://gitea.corp.com/team/app") {
+		t.Error("stored-side legacy reading should apply to port-like numeric segments")
+	}
 }
 
 func TestStoredRepoRowMatches(t *testing.T) {

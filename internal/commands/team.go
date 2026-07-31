@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
 	"github.com/sleuth-io/sx/v2/internal/ui/components"
 	"github.com/sleuth-io/sx/v2/internal/vault"
@@ -139,12 +140,21 @@ are added — you are not added automatically.`,
 				}
 			}
 
+			// Canonical on write: store the same form `sx team repo add`
+			// would, so one repo can't end up listed under two spellings.
+			normalizedRepos := make([]string, 0, len(repos))
+			for _, r := range repos {
+				if n := scope.NormalizeRepoURL(r); n != "" {
+					normalizedRepos = append(normalizedRepos, n)
+				}
+			}
+
 			team := mgmt.Team{
 				Name:         args[0],
 				Description:  description,
 				Members:      allMembers,
 				Admins:       effectiveAdmins,
-				Repositories: repos,
+				Repositories: normalizedRepos,
 			}
 
 			status := components.NewStatus(cmd.OutOrStdout())
@@ -315,8 +325,9 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Associate a repository with a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			warnAliasRepoURL(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
-			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
+			return runTeamMutationWithNote(cmd, args[0], func(v vault.Vault) {
+				warnAliasRepoURL(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			}, func(ctx context.Context, v vault.Vault) error {
 				return v.AddTeamRepository(ctx, args[0], args[1])
 			},
 				"Adding repo to team "+args[0],
@@ -328,8 +339,9 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Dissociate a repository from a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			warnAliasRepoURLForRemoval(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
-			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
+			return runTeamMutationWithNote(cmd, args[0], func(v vault.Vault) {
+				warnAliasRepoURLForRemoval(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			}, func(ctx context.Context, v vault.Vault) error {
 				return v.RemoveTeamRepository(ctx, args[0], args[1])
 			},
 				"Removing repo from team "+args[0],
@@ -345,6 +357,15 @@ func newTeamRepoCommand() *cobra.Command {
 // fresh context + status spinner. progressMsg is shown while fn runs (e.g.
 // "Adding alice to team platform") and doneMsg replaces it on success.
 func runTeamMutation(cmd *cobra.Command, team string, fn func(ctx context.Context, v vault.Vault) error, progressMsg, doneMsg string) error {
+	return runTeamMutationWithNote(cmd, team, nil, fn, progressMsg, doneMsg)
+}
+
+// runTeamMutationWithNote is runTeamMutation with an optional note
+// emitted after the vault is resolved and the admin pre-check passed —
+// so a note never precedes a permission or unknown-team failure — and
+// only for vault backends that persist repo hosts (the Sleuth backend
+// keys repositories by owner/name, making a host alias irrelevant).
+func runTeamMutationWithNote(cmd *cobra.Command, team string, note func(v vault.Vault), fn func(ctx context.Context, v vault.Vault) error, progressMsg, doneMsg string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -355,6 +376,9 @@ func runTeamMutation(cmd *cobra.Command, team string, fn func(ctx context.Contex
 	if err := requireTeamAdmin(ctx, v, team); err != nil {
 		return err
 	}
+	if note != nil && vaultPersistsRepoHost(v) {
+		note(v)
+	}
 	status := components.NewStatus(cmd.OutOrStdout())
 	status.Start(progressMsg)
 	if err := fn(ctx, v); err != nil {
@@ -363,6 +387,15 @@ func runTeamMutation(cmd *cobra.Command, team string, fn func(ctx context.Contex
 	}
 	status.Done(doneMsg)
 	return nil
+}
+
+// vaultPersistsRepoHost reports whether the vault stores repository
+// rows with their host. The Sleuth backend resolves repositories to
+// server-side entities by owner/name (trailingOwnerName), so an SSH
+// alias in the URL's host never reaches stored data there.
+func vaultPersistsRepoHost(v vault.Vault) bool {
+	_, isSleuth := v.(*vault.SleuthVault)
+	return !isSleuth
 }
 
 // requireTeamAdmin verifies the current actor is a team admin. This is a
