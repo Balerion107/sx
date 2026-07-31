@@ -83,21 +83,22 @@ func (m *Matcher) matchesRepository(repo *lockfile.Scope) bool {
 	return slices.ContainsFunc(repo.Paths, m.matchesPath)
 }
 
-// NearMissesAsset reports whether an asset that failed scope matching
-// has a repo scope naming the same owner/repo path as the current
-// repo — the signature of a URL-form mismatch (unresolvable SSH
-// alias, unexpected host) worth surfacing to the user, as opposed to
-// an asset simply scoped to a different repository.
-func (m *Matcher) NearMissesAsset(asset *lockfile.Asset) bool {
+// NearMissScope returns the first repo scope of an asset that failed
+// scope matching yet names the same owner/repo path as the current
+// repo — possibly a URL-form mismatch (unresolvable SSH alias,
+// unexpected host), possibly a genuinely different host carrying the
+// same project path. Callers surface it so the user can make that
+// call, as opposed to an asset simply scoped to a different repo.
+func (m *Matcher) NearMissScope(asset *lockfile.Asset) (repo string, ok bool) {
 	if m.currentScope.Type == TypeGlobal || m.currentScope.RepoURL == "" {
-		return false
+		return "", false
 	}
 	for _, s := range asset.Scopes {
 		if LooksLikeSameRepo(m.currentScope.RepoURL, s.Repo) {
-			return true
+			return s.Repo, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // matchesRepoURL checks if the asset's repo matches the current repo
@@ -164,13 +165,20 @@ func NormalizeRepoURL(repoURL string) string {
 }
 
 // CanonicalRepoURL returns the preferred stored form of a repo URL:
-// the normalized URL with any SSH host alias resolved to its real
-// host. Vault data written with this form records a host every
-// teammate can match, rather than an alias only the writer's
-// ~/.ssh/config knows about.
+// the normalized URL with an alias-shaped SSH host (no dot, e.g.
+// "workgit") resolved to its real host, so vault data records a host
+// every teammate can match. Hosts containing a dot are kept literal
+// even when ~/.ssh/config remaps them: entries like the GitHub
+// port-443 workaround (Host github.com / HostName ssh.github.com) are
+// transport detail on the writer's machine, and substituting them
+// would write a host no teammate's remote normalizes to.
 func CanonicalRepoURL(repoURL string) string {
-	candidates := NormalizeRepoURLCandidates(repoURL)
-	return candidates[len(candidates)-1]
+	if host, _ := sshHostAndPath(repoURL); host != "" && !strings.Contains(host, ".") {
+		if resolved := aliasResolvedForm(repoURL); resolved != "" {
+			return resolved
+		}
+	}
+	return NormalizeRepoURL(repoURL)
 }
 
 // LooksLikeSameRepo reports whether two repo URLs name the same
@@ -213,17 +221,26 @@ func cleanRepoURL(repoURL string) string {
 // github.com) therefore also yields github.com/acme/x.
 func NormalizeRepoURLCandidates(repoURL string) []string {
 	base := NormalizeRepoURL(repoURL)
+	if resolved := aliasResolvedForm(repoURL); resolved != "" && resolved != base {
+		return []string{base, resolved}
+	}
+	return []string{base}
+}
 
+// aliasResolvedForm returns the normalized form of an SSH remote with
+// its host replaced by the HostName from ~/.ssh/config, or "" when
+// the URL is not an SSH remote or no alias mapping applies.
+func aliasResolvedForm(repoURL string) string {
 	host, path := sshHostAndPath(repoURL)
 	if host == "" {
-		return []string{base}
+		return ""
 	}
 	resolved, ok := lookupSSHHostname(host)
 	resolved = strings.ToLower(strings.TrimSpace(resolved))
 	if !ok || resolved == "" || resolved == host {
-		return []string{base}
+		return ""
 	}
-	return []string{base, resolved + "/" + strings.TrimLeft(path, "/")}
+	return resolved + "/" + strings.TrimLeft(path, "/")
 }
 
 // lookupSSHHostname resolves an SSH host alias to its configured

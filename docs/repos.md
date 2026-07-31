@@ -30,7 +30,11 @@ same host resolve to the same scope. SSH host aliases from
 `~/.ssh/config` are resolved too: with `Host workgit` /
 `HostName github.com` configured, a clone whose remote is
 `git@workgit:acme/x.git` matches a scope stored as
-`https://github.com/acme/x`.
+`https://github.com/acme/x`. Alias resolution reads
+`~/.ssh/config` only — `Include` directives, `Match` blocks, and
+wildcard `Host` patterns are ignored — and depends on each
+machine's local config, so store vault scopes with real hostnames
+rather than aliases.
 
 > **Vault vs project:** the repo URL in `--repo` is your *project's*
 > git remote — the codebase where you want the asset installed — not

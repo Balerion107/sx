@@ -146,6 +146,24 @@ func TestCanonicalRepoURL(t *testing.T) {
 	}
 }
 
+func TestCanonicalRepoURL_KeepsDottedHostsLiteral(t *testing.T) {
+	// The GitHub port-443 workaround (Host github.com / HostName
+	// ssh.github.com) is transport detail on the writer's machine —
+	// persisting the resolved host would poison shared vault data with
+	// a hostname no teammate's remote normalizes to.
+	withSSHHostStub(t, map[string]string{
+		"github.com": "ssh.github.com",
+		"ghe.corp":   "ghe-internal.corp",
+	})
+
+	if got := CanonicalRepoURL("git@github.com:acme/x.git"); got != "github.com/acme/x" {
+		t.Errorf("CanonicalRepoURL rewrote a dotted host: got %q, want github.com/acme/x", got)
+	}
+	if got := CanonicalRepoURL("git@ghe.corp:acme/x.git"); got != "ghe.corp/acme/x" {
+		t.Errorf("CanonicalRepoURL rewrote a dotted alias: got %q, want ghe.corp/acme/x", got)
+	}
+}
+
 func TestLooksLikeSameRepo(t *testing.T) {
 	withSSHHostStub(t, nil)
 
@@ -179,7 +197,7 @@ func TestMatchesAsset_SSHRemote(t *testing.T) {
 	}
 }
 
-func TestNearMissesAsset(t *testing.T) {
+func TestNearMissScope(t *testing.T) {
 	withSSHHostStub(t, nil)
 
 	asset := &lockfile.Asset{
@@ -188,17 +206,18 @@ func TestNearMissesAsset(t *testing.T) {
 	}
 
 	m := NewMatcher(&Scope{Type: TypeRepo, RepoURL: "git@badalias:acme/x.git"})
-	if !m.NearMissesAsset(asset) {
-		t.Error("unresolvable alias with same owner/repo should be a near miss")
+	repo, ok := m.NearMissScope(asset)
+	if !ok || repo != "https://github.com/acme/x" {
+		t.Errorf("NearMissScope = (%q, %v), want the offending scope repo", repo, ok)
 	}
 
 	m = NewMatcher(&Scope{Type: TypeRepo, RepoURL: "git@github.com:acme/other.git"})
-	if m.NearMissesAsset(asset) {
+	if _, ok := m.NearMissScope(asset); ok {
 		t.Error("asset for another repo is not a near miss")
 	}
 
 	m = NewMatcher(&Scope{Type: TypeGlobal})
-	if m.NearMissesAsset(asset) {
+	if _, ok := m.NearMissScope(asset); ok {
 		t.Error("global context has no near misses")
 	}
 }

@@ -208,10 +208,10 @@ func mergeApplicableAssets(
 	profileLocks []profileLockFile,
 	targetClients []clients.Client,
 	matcherScope *scope.Matcher,
-) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, skips scopeSkips, err error) {
+) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, skips *scopeSkips, err error) {
 	assetOrigin = make(map[string]string)
 	conflictByName := make(map[string]*assetConflict)
-	skips = newScopeSkips()
+	skips = &scopeSkips{}
 
 	for _, pl := range profileLocks {
 		if pl.LockFile == nil {

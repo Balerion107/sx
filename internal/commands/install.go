@@ -182,7 +182,7 @@ func findAssetOwningProfile(ctx context.Context, assetName string) string {
 // implicit by absence). Single-profile output is left unchanged so
 // existing scripts that parse the `pip freeze`-style format keep
 // working.
-func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, skips scopeSkips) {
+func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, skips *scopeSkips) {
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
@@ -210,27 +210,31 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 }
 
 // reportScopeSkips warns about near-miss scope exclusions — skipped
-// assets whose scope names this repo under a different URL form.
-// Ordinary skips (assets scoped to other repos, or repo-scoped assets
-// while outside any repo) are expected on every install and stay
-// quiet here; --dry-run reports the full count.
-func reportScopeSkips(skips scopeSkips, styledOut *ui.Output) {
+// assets scoped to a repo with the same owner/repo path as the
+// current remote but a different host. Ordinary skips (assets scoped
+// to other repos, or repo-scoped assets while outside any repo) are
+// expected on every install and stay quiet here; --dry-run reports
+// the full count.
+func reportScopeSkips(skips *scopeSkips, styledOut *ui.Output) {
 	if n := skips.NearMiss(); n > 0 {
 		styledOut.Warning(fmt.Sprintf(
-			"%d skipped asset(s) appear scoped to this repo under a different URL form; run 'sx install --dry-run' for details", n))
+			"%d skipped asset(s) are scoped to a repo with this repo's owner/repo path but a different host; run 'sx install --dry-run' for details", n))
 	}
 }
 
 // printDryRunScopeSkips notes assets excluded because their scope did
-// not match the current context, so a clone whose remote fails to
-// match (wrong URL form, different repo) is diagnosable from the
-// preview alone.
-func printDryRunScopeSkips(w io.Writer, skips scopeSkips) {
+// not match the current context, listing each near-miss with its
+// stored scope so a clone whose remote fails to match (wrong URL
+// form, different host) is diagnosable from the preview alone.
+func printDryRunScopeSkips(w io.Writer, skips *scopeSkips) {
 	if n := skips.Skipped(); n > 0 {
 		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", n)
 	}
 	if n := skips.NearMiss(); n > 0 {
-		fmt.Fprintf(w, "# %d of them appear scoped to this repo under a different URL form\n", n)
+		fmt.Fprintf(w, "# %d of them name the same owner/repo path as this repo but a different host:\n", n)
+		for _, detail := range skips.NearMissDetails() {
+			fmt.Fprintf(w, "#   %s\n", detail)
+		}
 	}
 }
 

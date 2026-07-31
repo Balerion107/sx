@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/assets"
@@ -143,31 +145,49 @@ func addForceEnabledClients(cfg *config.Config, registry *clients.Registry, exis
 
 // scopeSkips summarizes assets excluded by scope matching, deduped by
 // asset name across profiles. Skipped is every supported asset whose
-// scope didn't match the current context; NearMiss is the subset with
-// a scope naming the same owner/repo as the current remote — the
-// signature of a URL-form mismatch rather than an asset that belongs
-// to another repo.
+// scope didn't match the current context; the near-miss subset holds
+// skipped assets with a scope naming the same owner/repo path as the
+// current remote — possibly a URL-form mismatch — mapped to the
+// offending scope repo so output can show exactly what didn't match.
+// The zero value is ready to use; record initializes lazily.
 type scopeSkips struct {
 	skippedNames  map[string]struct{}
-	nearMissNames map[string]struct{}
+	nearMissRepos map[string]string
 }
 
-func newScopeSkips() scopeSkips {
-	return scopeSkips{
-		skippedNames:  make(map[string]struct{}),
-		nearMissNames: make(map[string]struct{}),
+func (s *scopeSkips) record(asset *lockfile.Asset, matcher *scope.Matcher) {
+	if s.skippedNames == nil {
+		s.skippedNames = make(map[string]struct{})
+	}
+	s.skippedNames[asset.Name] = struct{}{}
+	if repo, ok := matcher.NearMissScope(asset); ok {
+		if s.nearMissRepos == nil {
+			s.nearMissRepos = make(map[string]string)
+		}
+		s.nearMissRepos[asset.Name] = repo
 	}
 }
 
-func (s scopeSkips) Skipped() int  { return len(s.skippedNames) }
-func (s scopeSkips) NearMiss() int { return len(s.nearMissNames) }
+func (s *scopeSkips) Skipped() int  { return len(s.skippedNames) }
+func (s *scopeSkips) NearMiss() int { return len(s.nearMissRepos) }
+
+// NearMissDetails returns "name: scoped to repo" lines, sorted by
+// asset name for deterministic output.
+func (s *scopeSkips) NearMissDetails() []string {
+	names := slices.Sorted(maps.Keys(s.nearMissRepos))
+	details := make([]string, 0, len(names))
+	for _, name := range names {
+		details = append(details, name+": scoped to "+s.nearMissRepos[name])
+	}
+	return details
+}
 
 // filterAssetsByScope filters assets to those applicable to the
 // current context, recording assets some target client supports that
 // were excluded only because their scope doesn't match — callers
 // surface those so scoped assets never disappear silently (e.g. an
 // SSH remote failing to match an https scope).
-func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher, skips scopeSkips) []*lockfile.Asset {
+func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher, skips *scopeSkips) []*lockfile.Asset {
 	var applicableAssets []*lockfile.Asset
 	for i := range lf.Assets {
 		asset := &lf.Assets[i]
@@ -175,10 +195,7 @@ func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, 
 			continue
 		}
 		if !matcherScope.MatchesAsset(asset) {
-			skips.skippedNames[asset.Name] = struct{}{}
-			if matcherScope.NearMissesAsset(asset) {
-				skips.nearMissNames[asset.Name] = struct{}{}
-			}
+			skips.record(asset, matcherScope)
 			continue
 		}
 		applicableAssets = append(applicableAssets, asset)
