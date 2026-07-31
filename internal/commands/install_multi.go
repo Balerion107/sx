@@ -208,19 +208,19 @@ func mergeApplicableAssets(
 	profileLocks []profileLockFile,
 	targetClients []clients.Client,
 	matcherScope *scope.Matcher,
-) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, scopeSkipped int, err error) {
+) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, skips scopeSkips, err error) {
 	assetOrigin = make(map[string]string)
 	conflictByName := make(map[string]*assetConflict)
+	skips = newScopeSkips()
 
 	for _, pl := range profileLocks {
 		if pl.LockFile == nil {
 			continue
 		}
-		applicable, skipped := filterAssetsByScope(pl.LockFile, targetClients, matcherScope)
-		scopeSkipped += skipped
+		applicable := filterAssetsByScope(pl.LockFile, targetClients, matcherScope, skips)
 		sorted, resolveErr := resolveAssetDependencies(pl.LockFile, applicable)
 		if resolveErr != nil {
-			return nil, nil, nil, 0, fmt.Errorf("dependency resolution for profile %s: %w", pl.ProfileName, resolveErr)
+			return nil, nil, nil, skips, fmt.Errorf("dependency resolution for profile %s: %w", pl.ProfileName, resolveErr)
 		}
 		for _, asset := range sorted {
 			if existing, taken := assetOrigin[asset.Name]; taken {
@@ -247,7 +247,7 @@ func mergeApplicableAssets(
 			conflicts = append(conflicts, *conflictByName[n])
 		}
 	}
-	return sortedAssets, assetOrigin, conflicts, scopeSkipped, nil
+	return sortedAssets, assetOrigin, conflicts, skips, nil
 }
 
 // profileMetadata pairs identity + audit-tag context for the profiles

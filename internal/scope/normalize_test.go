@@ -6,6 +6,19 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 )
 
+// withSSHHostStub replaces the ssh_config lookup for the duration of a
+// test so the suite never reads the developer's real ~/.ssh/config.
+// Pass nil for "no aliases configured".
+func withSSHHostStub(t *testing.T, hosts map[string]string) {
+	t.Helper()
+	orig := lookupSSHHostname
+	lookupSSHHostname = func(alias string) (string, bool) {
+		h, ok := hosts[alias]
+		return h, ok
+	}
+	t.Cleanup(func() { lookupSSHHostname = orig })
+}
+
 func TestNormalizeRepoURL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -20,12 +33,15 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"scp uppercase", "Git@GitHub.com:Acme/X.git", "github.com/acme/x"},
 		{"scp self-hosted", "git@ghe.corp.com:acme/x.git", "ghe.corp.com/acme/x"},
 		{"scp ssh alias", "git@workgit:acme/x.git", "workgit/acme/x"},
+		{"scp userless alias", "workgit:acme/x.git", "workgit/acme/x"},
+		{"scp userless host", "github.com:acme/x.git", "github.com/acme/x"},
 		{"scp absolute path", "git@server.corp.com:/srv/git/x.git", "server.corp.com/srv/git/x"},
 		{"ssh scheme", "ssh://git@github.com/acme/x.git", "github.com/acme/x"},
 		{"ssh scheme with port", "ssh://git@github.com:22/acme/x.git", "github.com/acme/x"},
 		{"ssh nondefault port", "ssh://git@gitea.corp.com:2222/acme/x.git", "gitea.corp.com/acme/x"},
 		{"already normalized", "github.com/acme/x", "github.com/acme/x"},
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
+		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},
 	}
 	for _, tt := range tests {
@@ -38,9 +54,12 @@ func TestNormalizeRepoURL(t *testing.T) {
 }
 
 func TestMatchRepoURLs_CrossTransport(t *testing.T) {
+	withSSHHostStub(t, nil)
+
 	stored := "https://github.com/kintsugi-tax/infra-ops"
 	remotes := []string{
 		"git@github.com:kintsugi-tax/infra-ops.git",
+		"github.com:kintsugi-tax/infra-ops.git",
 		"ssh://git@github.com/kintsugi-tax/infra-ops.git",
 		"ssh://git@github.com:22/kintsugi-tax/infra-ops.git",
 		"https://github.com/kintsugi-tax/infra-ops.git",
@@ -57,33 +76,26 @@ func TestMatchRepoURLs_CrossTransport(t *testing.T) {
 }
 
 func TestMatchRepoURLs_SelfHostedSCP(t *testing.T) {
+	withSSHHostStub(t, nil)
+
 	if !MatchRepoURLs("git@ghe.corp.com:acme/x.git", "https://ghe.corp.com/acme/x") {
 		t.Error("self-hosted scp remote should match https scope")
 	}
 }
 
-// withSSHHostStub replaces the ssh_config lookup for the duration of a test.
-func withSSHHostStub(t *testing.T, hosts map[string]string) {
-	t.Helper()
-	orig := lookupSSHHostname
-	lookupSSHHostname = func(alias string) (string, bool) {
-		h, ok := hosts[alias]
-		return h, ok
-	}
-	t.Cleanup(func() { lookupSSHHostname = orig })
-}
-
 func TestNormalizeRepoURLCandidates_Alias(t *testing.T) {
 	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
 
-	got := NormalizeRepoURLCandidates("git@workgit:acme/x.git")
-	want := []string{"workgit/acme/x", "github.com/acme/x"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("candidates = %v, want %v", got, want)
+	for _, remote := range []string{"git@workgit:acme/x.git", "workgit:acme/x.git"} {
+		got := NormalizeRepoURLCandidates(remote)
+		want := []string{"workgit/acme/x", "github.com/acme/x"}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Fatalf("candidates(%q) = %v, want %v", remote, got, want)
+		}
 	}
 
 	// Non-SSH URLs never consult ssh_config.
-	got = NormalizeRepoURLCandidates("https://workgit/acme/x")
+	got := NormalizeRepoURLCandidates("https://workgit/acme/x")
 	if len(got) != 1 || got[0] != "workgit/acme/x" {
 		t.Fatalf("https candidates = %v, want single literal form", got)
 	}
@@ -106,11 +118,45 @@ func TestNormalizeRepoURLCandidates_AliasIsRealHost(t *testing.T) {
 func TestMatchRepoURLs_AliasResolvesToStoredScope(t *testing.T) {
 	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
 
-	if !MatchRepoURLs("git@workgit:kintsugi-tax/infra-ops.git", "https://github.com/kintsugi-tax/infra-ops") {
-		t.Error("ssh alias remote should match https scope for the resolved host")
+	stored := "https://github.com/kintsugi-tax/infra-ops"
+	for _, remote := range []string{
+		"git@workgit:kintsugi-tax/infra-ops.git",
+		"workgit:kintsugi-tax/infra-ops.git",
+		"ssh://git@workgit/kintsugi-tax/infra-ops.git",
+	} {
+		if !MatchRepoURLs(remote, stored) {
+			t.Errorf("alias remote %q should match %q", remote, stored)
+		}
 	}
-	if !MatchRepoURLs("ssh://git@workgit/kintsugi-tax/infra-ops.git", "https://github.com/kintsugi-tax/infra-ops") {
-		t.Error("ssh:// alias remote should match https scope for the resolved host")
+}
+
+func TestCanonicalRepoURL(t *testing.T) {
+	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
+
+	tests := []struct{ in, want string }{
+		{"git@workgit:acme/x.git", "github.com/acme/x"},
+		{"git@github.com:acme/x.git", "github.com/acme/x"},
+		{"https://github.com/acme/x", "github.com/acme/x"},
+		{"workgit:acme/x", "github.com/acme/x"},
+	}
+	for _, tt := range tests {
+		if got := CanonicalRepoURL(tt.in); got != tt.want {
+			t.Errorf("CanonicalRepoURL(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestLooksLikeSameRepo(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	if !LooksLikeSameRepo("git@unresolvable-alias:acme/x.git", "https://github.com/acme/x") {
+		t.Error("same owner/repo on different hosts should be a near miss")
+	}
+	if LooksLikeSameRepo("git@github.com:acme/x.git", "https://github.com/acme/x") {
+		t.Error("a full match must not be a near miss")
+	}
+	if LooksLikeSameRepo("git@github.com:acme/x.git", "https://github.com/acme/y") {
+		t.Error("different repos are not a near miss")
 	}
 }
 
@@ -124,10 +170,35 @@ func TestMatchesAsset_SSHRemote(t *testing.T) {
 	for _, remote := range []string{
 		"git@github.com:kintsugi-tax/infra-ops.git",
 		"git@workgit:kintsugi-tax/infra-ops.git",
+		"workgit:kintsugi-tax/infra-ops.git",
 	} {
 		m := NewMatcher(&Scope{Type: TypeRepo, RepoURL: remote})
 		if !m.MatchesAsset(asset) {
 			t.Errorf("remote %q did not match asset scope", remote)
 		}
+	}
+}
+
+func TestNearMissesAsset(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	asset := &lockfile.Asset{
+		Name:   "infra-skill",
+		Scopes: []lockfile.Scope{{Repo: "https://github.com/acme/x"}},
+	}
+
+	m := NewMatcher(&Scope{Type: TypeRepo, RepoURL: "git@badalias:acme/x.git"})
+	if !m.NearMissesAsset(asset) {
+		t.Error("unresolvable alias with same owner/repo should be a near miss")
+	}
+
+	m = NewMatcher(&Scope{Type: TypeRepo, RepoURL: "git@github.com:acme/other.git"})
+	if m.NearMissesAsset(asset) {
+		t.Error("asset for another repo is not a near miss")
+	}
+
+	m = NewMatcher(&Scope{Type: TypeGlobal})
+	if m.NearMissesAsset(asset) {
+		t.Error("global context has no near misses")
 	}
 }

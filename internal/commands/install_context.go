@@ -141,24 +141,49 @@ func addForceEnabledClients(cfg *config.Config, registry *clients.Registry, exis
 	return existing
 }
 
-// filterAssetsByScope filters assets to those applicable to the current
-// context. scopeSkipped counts assets some target client supports that
-// were excluded only because their scope doesn't match the current
-// context — callers surface it so scoped assets never disappear
-// silently (e.g. an SSH remote failing to match an https scope).
-func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher) (applicableAssets []*lockfile.Asset, scopeSkipped int) {
+// scopeSkips summarizes assets excluded by scope matching, deduped by
+// asset name across profiles. Skipped is every supported asset whose
+// scope didn't match the current context; NearMiss is the subset with
+// a scope naming the same owner/repo as the current remote — the
+// signature of a URL-form mismatch rather than an asset that belongs
+// to another repo.
+type scopeSkips struct {
+	skippedNames  map[string]struct{}
+	nearMissNames map[string]struct{}
+}
+
+func newScopeSkips() scopeSkips {
+	return scopeSkips{
+		skippedNames:  make(map[string]struct{}),
+		nearMissNames: make(map[string]struct{}),
+	}
+}
+
+func (s scopeSkips) Skipped() int  { return len(s.skippedNames) }
+func (s scopeSkips) NearMiss() int { return len(s.nearMissNames) }
+
+// filterAssetsByScope filters assets to those applicable to the
+// current context, recording assets some target client supports that
+// were excluded only because their scope doesn't match — callers
+// surface those so scoped assets never disappear silently (e.g. an
+// SSH remote failing to match an https scope).
+func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher, skips scopeSkips) []*lockfile.Asset {
+	var applicableAssets []*lockfile.Asset
 	for i := range lf.Assets {
 		asset := &lf.Assets[i]
 		if !isAssetSupportedByAnyClient(asset, targetClients) {
 			continue
 		}
 		if !matcherScope.MatchesAsset(asset) {
-			scopeSkipped++
+			skips.skippedNames[asset.Name] = struct{}{}
+			if matcherScope.NearMissesAsset(asset) {
+				skips.nearMissNames[asset.Name] = struct{}{}
+			}
 			continue
 		}
 		applicableAssets = append(applicableAssets, asset)
 	}
-	return applicableAssets, scopeSkipped
+	return applicableAssets
 }
 
 // isAssetSupportedByAnyClient checks if any target client both matches

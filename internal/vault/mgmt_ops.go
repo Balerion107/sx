@@ -482,11 +482,15 @@ func commonAddTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, repoU
 		if err != nil {
 			return nil, err
 		}
-		normalized := scope.NormalizeRepoURL(strings.TrimSpace(repoURL))
+		normalized := scope.CanonicalRepoURL(strings.TrimSpace(repoURL))
 		if normalized == "" {
 			return nil, errors.New("cannot add empty repository URL")
 		}
-		if slices.Contains(team.Repositories, normalized) {
+		// URL-aware comparison so rows stored under an older
+		// normalization (or another URL form) don't get duplicated.
+		if slices.ContainsFunc(team.Repositories, func(existing string) bool {
+			return scope.MatchRepoURLs(existing, normalized)
+		}) {
 			return nil, nil
 		}
 		team.Repositories = append(team.Repositories, normalized)
@@ -509,8 +513,12 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 		if err != nil {
 			return nil, err
 		}
-		normalized := scope.NormalizeRepoURL(strings.TrimSpace(repoURL))
-		team.Repositories = removeString(team.Repositories, normalized)
+		needle := strings.TrimSpace(repoURL)
+		// URL-aware removal so rows stored under an older normalization
+		// (or another URL form) still resolve to the same repository.
+		team.Repositories = slices.DeleteFunc(slices.Clone(team.Repositories), func(existing string) bool {
+			return scope.MatchRepoURLs(existing, needle)
+		})
 		if _, err := m.UpsertTeam(*team); err != nil {
 			return nil, err
 		}
@@ -518,7 +526,7 @@ func commonRemoveTeamRepository(vaultRoot string, actor mgmt.Actor, teamName, re
 			Event:      mgmt.EventTeamRepoRemoved,
 			TargetType: mgmt.TargetTypeTeam,
 			Target:     teamName,
-			Data:       map[string]any{"repository": normalized},
+			Data:       map[string]any{"repository": scope.CanonicalRepoURL(needle)},
 		}, nil
 	})
 }
@@ -835,7 +843,7 @@ func commonSetAssetInstallation(vaultRoot string, actor mgmt.Actor, assetName st
 		}
 		s = manifest.Scope{
 			Kind: manifest.ScopeKindRepo,
-			Repo: scope.NormalizeRepoURL(target.Repo),
+			Repo: scope.CanonicalRepoURL(target.Repo),
 		}
 	case InstallKindPath:
 		if target.Repo == "" || len(target.Paths) == 0 {
@@ -843,7 +851,7 @@ func commonSetAssetInstallation(vaultRoot string, actor mgmt.Actor, assetName st
 		}
 		s = manifest.Scope{
 			Kind:  manifest.ScopeKindPath,
-			Repo:  scope.NormalizeRepoURL(target.Repo),
+			Repo:  scope.CanonicalRepoURL(target.Repo),
 			Paths: canonicalPaths(target.Paths),
 		}
 	case InstallKindTeam:
@@ -1502,12 +1510,12 @@ func installTargetScope(target InstallTarget, actor mgmt.Actor) (manifest.Scope,
 		if target.Repo == "" {
 			return manifest.Scope{}, errors.New("repo installation missing repo URL")
 		}
-		return manifest.Scope{Kind: manifest.ScopeKindRepo, Repo: scope.NormalizeRepoURL(target.Repo)}, nil
+		return manifest.Scope{Kind: manifest.ScopeKindRepo, Repo: scope.CanonicalRepoURL(target.Repo)}, nil
 	case InstallKindPath:
 		if target.Repo == "" || len(target.Paths) == 0 {
 			return manifest.Scope{}, errors.New("path installation requires repo URL and at least one path")
 		}
-		return manifest.Scope{Kind: manifest.ScopeKindPath, Repo: scope.NormalizeRepoURL(target.Repo), Paths: canonicalPaths(target.Paths)}, nil
+		return manifest.Scope{Kind: manifest.ScopeKindPath, Repo: scope.CanonicalRepoURL(target.Repo), Paths: canonicalPaths(target.Paths)}, nil
 	case InstallKindTeam:
 		if target.Team == "" {
 			return manifest.Scope{}, errors.New("team installation missing team name")
@@ -1544,9 +1552,9 @@ func installScopeMatches(scopeRow, needle manifest.Scope) bool {
 		// org scopes are a meaningful thing to match.
 		return false
 	case manifest.ScopeKindRepo:
-		return scope.NormalizeRepoURL(scopeRow.Repo) == scope.NormalizeRepoURL(needle.Repo)
+		return scope.MatchRepoURLs(scopeRow.Repo, needle.Repo)
 	case manifest.ScopeKindPath:
-		return scope.NormalizeRepoURL(scopeRow.Repo) == scope.NormalizeRepoURL(needle.Repo) && slices.Equal(canonicalPaths(scopeRow.Paths), canonicalPaths(needle.Paths))
+		return scope.MatchRepoURLs(scopeRow.Repo, needle.Repo) && slices.Equal(canonicalPaths(scopeRow.Paths), canonicalPaths(needle.Paths))
 	case manifest.ScopeKindTeam:
 		return scopeRow.Team == needle.Team
 	case manifest.ScopeKindUser:

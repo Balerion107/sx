@@ -182,11 +182,11 @@ func findAssetOwningProfile(ctx context.Context, assetName string) string {
 // implicit by absence). Single-profile output is left unchanged so
 // existing scripts that parse the `pip freeze`-style format keep
 // working.
-func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, scopeSkipped int) {
+func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, skips scopeSkips) {
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
-		printDryRunScopeSkips(w, scopeSkipped)
+		printDryRunScopeSkips(w, skips)
 		return
 	}
 
@@ -195,7 +195,7 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 	if s := describeCurrentScope(env.CurrentScope); s != "" {
 		fmt.Fprintln(w, "# Current scope:", s)
 	}
-	printDryRunScopeSkips(w, scopeSkipped)
+	printDryRunScopeSkips(w, skips)
 	fmt.Fprintln(w)
 
 	for _, a := range assets {
@@ -209,12 +209,15 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 	}
 }
 
-// reportScopeSkips surfaces scope-mismatch exclusions so scoped assets
-// never vanish silently (e.g. a remote URL form failing to match a
-// stored scope).
-func reportScopeSkips(scopeSkipped int, styledOut *ui.Output) {
-	if scopeSkipped > 0 {
-		styledOut.Muted(fmt.Sprintf("%d asset(s) skipped: scope does not match this context", scopeSkipped))
+// reportScopeSkips warns about near-miss scope exclusions — skipped
+// assets whose scope names this repo under a different URL form.
+// Ordinary skips (assets scoped to other repos, or repo-scoped assets
+// while outside any repo) are expected on every install and stay
+// quiet here; --dry-run reports the full count.
+func reportScopeSkips(skips scopeSkips, styledOut *ui.Output) {
+	if n := skips.NearMiss(); n > 0 {
+		styledOut.Warning(fmt.Sprintf(
+			"%d skipped asset(s) appear scoped to this repo under a different URL form; run 'sx install --dry-run' for details", n))
 	}
 }
 
@@ -222,9 +225,12 @@ func reportScopeSkips(scopeSkipped int, styledOut *ui.Output) {
 // not match the current context, so a clone whose remote fails to
 // match (wrong URL form, different repo) is diagnosable from the
 // preview alone.
-func printDryRunScopeSkips(w io.Writer, scopeSkipped int) {
-	if scopeSkipped > 0 {
-		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", scopeSkipped)
+func printDryRunScopeSkips(w io.Writer, skips scopeSkips) {
+	if n := skips.Skipped(); n > 0 {
+		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", n)
+	}
+	if n := skips.NearMiss(); n > 0 {
+		fmt.Fprintf(w, "# %d of them appear scoped to this repo under a different URL form\n", n)
 	}
 }
 
@@ -349,7 +355,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// for "first-active" is whichever profile appears first in
 	// profileLocks (already ordered per config.GetActiveProfileNames).
 	matcherScope := scope.NewMatcher(env.CurrentScope)
-	sortedAssets, assetOrigin, conflicts, scopeSkipped, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
+	sortedAssets, assetOrigin, conflicts, skips, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
 	if err != nil {
 		return err
 	}
@@ -374,11 +380,11 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// --dry-run: print the resolved asset list and exit before we touch
 	// the tracker, download anything, or write to client directories.
 	if dryRun {
-		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, scopeSkipped)
+		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, skips)
 		return nil
 	}
 
-	reportScopeSkips(scopeSkipped, styledOut)
+	reportScopeSkips(skips, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)

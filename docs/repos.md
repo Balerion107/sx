@@ -24,7 +24,9 @@ Repo URLs are normalized before comparison — `git@github.com:acme/x`,
 `https://github.com/acme/x`, and `https://github.com/acme/x.git` all
 resolve to the same scope row. This applies to any host (including
 GitHub Enterprise and self-hosted git servers), and userinfo, ports,
-and a trailing `.git` are ignored. SSH host aliases from
+and a trailing `.git` are ignored. Ignoring ports means sx assumes
+one git server per hostname — two servers on different ports of the
+same host resolve to the same scope. SSH host aliases from
 `~/.ssh/config` are resolved too: with `Host workgit` /
 `HostName github.com` configured, a clone whose remote is
 `git@workgit:acme/x.git` matches a scope stored as

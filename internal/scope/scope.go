@@ -83,6 +83,23 @@ func (m *Matcher) matchesRepository(repo *lockfile.Scope) bool {
 	return slices.ContainsFunc(repo.Paths, m.matchesPath)
 }
 
+// NearMissesAsset reports whether an asset that failed scope matching
+// has a repo scope naming the same owner/repo path as the current
+// repo — the signature of a URL-form mismatch (unresolvable SSH
+// alias, unexpected host) worth surfacing to the user, as opposed to
+// an asset simply scoped to a different repository.
+func (m *Matcher) NearMissesAsset(asset *lockfile.Asset) bool {
+	if m.currentScope.Type == TypeGlobal || m.currentScope.RepoURL == "" {
+		return false
+	}
+	for _, s := range asset.Scopes {
+		if LooksLikeSameRepo(m.currentScope.RepoURL, s.Repo) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesRepoURL checks if the asset's repo matches the current repo
 func (m *Matcher) matchesRepoURL(assetRepo string) bool {
 	if m.currentScope.RepoURL == "" || assetRepo == "" {
@@ -124,14 +141,15 @@ func MatchRepoURLs(url1, url2 string) bool {
 
 // NormalizeRepoURL normalizes a repository URL for comparison. All
 // transports of the same repository reduce to "host/owner/repo":
-// scp-style SSH remotes (git@host:owner/repo) are handled for any
-// host, and userinfo, ports, a trailing ".git", and trailing slashes
-// are dropped. Strings that don't look like a URL are returned
+// scp-style SSH remotes (git@host:owner/repo or host:owner/repo) are
+// handled for any host, and userinfo, ports, a trailing ".git", and
+// trailing slashes are dropped. Note that dropping the port collapses
+// distinct git servers hosted on different ports of one hostname —
+// the deliberate trade that lets ssh://host:2222/x match
+// https://host/x. Strings that don't look like a URL are returned
 // cleaned but otherwise as-is.
 func NormalizeRepoURL(repoURL string) string {
-	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
-	cleaned = strings.TrimSuffix(cleaned, "/")
-	cleaned = strings.TrimSuffix(cleaned, ".git")
+	cleaned := cleanRepoURL(repoURL)
 
 	if host, path, ok := splitSCPLike(cleaned); ok {
 		return host + "/" + strings.TrimLeft(path, "/")
@@ -143,6 +161,48 @@ func NormalizeRepoURL(repoURL string) string {
 		return cleaned
 	}
 	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
+}
+
+// CanonicalRepoURL returns the preferred stored form of a repo URL:
+// the normalized URL with any SSH host alias resolved to its real
+// host. Vault data written with this form records a host every
+// teammate can match, rather than an alias only the writer's
+// ~/.ssh/config knows about.
+func CanonicalRepoURL(repoURL string) string {
+	candidates := NormalizeRepoURLCandidates(repoURL)
+	return candidates[len(candidates)-1]
+}
+
+// LooksLikeSameRepo reports whether two repo URLs name the same
+// owner/repo path even though they don't fully match — the signature
+// of a host form that failed to normalize (an unresolvable alias, a
+// different host for the same project). Full matches return false.
+func LooksLikeSameRepo(url1, url2 string) bool {
+	if MatchRepoURLs(url1, url2) {
+		return false
+	}
+	p1, p2 := repoPathPortion(url1), repoPathPortion(url2)
+	return p1 != "" && p1 == p2
+}
+
+// repoPathPortion returns the owner/repo part of a normalized repo
+// URL (everything after the host), or "" when there is none.
+func repoPathPortion(repoURL string) string {
+	normalized := NormalizeRepoURL(repoURL)
+	if i := strings.IndexByte(normalized, '/'); i > 0 {
+		return normalized[i+1:]
+	}
+	return ""
+}
+
+// cleanRepoURL applies the shared pre-normalization cleanup: trim,
+// lowercase, and drop a trailing slash and ".git". Every function
+// that inspects repo URL structure must clean through here so host
+// extraction and normalization can never diverge.
+func cleanRepoURL(repoURL string) string {
+	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
+	cleaned = strings.TrimSuffix(cleaned, "/")
+	return strings.TrimSuffix(cleaned, ".git")
 }
 
 // NormalizeRepoURLCandidates returns every normalized form repoURL can
@@ -171,12 +231,9 @@ func NormalizeRepoURLCandidates(repoURL string) []string {
 var lookupSSHHostname = git.SSHConfigHostname
 
 // sshHostAndPath extracts the host and repo path from an SSH remote
-// (scp-style or ssh://), already cleaned the same way NormalizeRepoURL
-// cleans its input. Returns "" for non-SSH URLs.
+// (scp-style or ssh://). Returns "" for non-SSH URLs.
 func sshHostAndPath(repoURL string) (host, path string) {
-	cleaned := strings.TrimSpace(strings.ToLower(repoURL))
-	cleaned = strings.TrimSuffix(cleaned, "/")
-	cleaned = strings.TrimSuffix(cleaned, ".git")
+	cleaned := cleanRepoURL(repoURL)
 
 	if h, p, ok := splitSCPLike(cleaned); ok {
 		return h, p
@@ -192,23 +249,32 @@ func sshHostAndPath(repoURL string) (host, path string) {
 	return "", ""
 }
 
-// splitSCPLike splits an scp-style remote (user@host:path) into host
-// and path. The host part cannot carry a port in this syntax, and a
-// "://" anywhere means the string is a real URL instead.
+// splitSCPLike splits an scp-style remote into host and path,
+// following git's rule: with no "://", a colon before the first slash
+// separates host from path, and userinfo is optional — ssh-config
+// alias users typically write "workgit:acme/x" because User lives in
+// the config. Single-character hosts are rejected so Windows drive
+// paths (c:/repos/x) are never mistaken for remotes. The host part
+// cannot carry a port in this syntax.
 func splitSCPLike(s string) (host, path string, ok bool) {
-	if strings.Contains(s, "://") {
+	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
 	}
-	at := strings.IndexByte(s, '@')
-	if at <= 0 {
+	colon := strings.IndexByte(s, ':')
+	if colon <= 0 || colon == len(s)-1 {
 		return "", "", false
 	}
-	rest := s[at+1:]
-	colon := strings.IndexByte(rest, ':')
-	if colon <= 0 || colon == len(rest)-1 {
+	if slash := strings.IndexByte(s, '/'); slash >= 0 && slash < colon {
 		return "", "", false
 	}
-	return rest[:colon], rest[colon+1:], true
+	host = s[:colon]
+	if at := strings.IndexByte(host, '@'); at >= 0 {
+		host = host[at+1:]
+	}
+	if len(host) <= 1 {
+		return "", "", false
+	}
+	return host, s[colon+1:], true
 }
 
 // normalizeRepoPath normalizes a repository-relative path

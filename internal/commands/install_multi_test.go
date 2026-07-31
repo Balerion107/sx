@@ -87,12 +87,12 @@ func TestMergeApplicableAssets_ThreeWayConflict(t *testing.T) {
 		buildProfileLock("b", "dup"),
 		buildProfileLock("c", "dup"),
 	}
-	_, _, conflicts, scopeSkipped, err := mergeApplicableAssets(locks, clientList, matcher)
+	_, _, conflicts, skips, err := mergeApplicableAssets(locks, clientList, matcher)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
-	if scopeSkipped != 0 {
-		t.Fatalf("scopeSkipped = %d, want 0 for global assets", scopeSkipped)
+	if skips.Skipped() != 0 {
+		t.Fatalf("skips.Skipped() = %d, want 0 for global assets", skips.Skipped())
 	}
 	if len(conflicts) != 1 {
 		t.Fatalf("expected single conflict record, got %d", len(conflicts))
