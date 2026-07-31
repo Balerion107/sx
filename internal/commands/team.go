@@ -315,6 +315,7 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Associate a repository with a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnAliasRepoURL(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
 				return v.AddTeamRepository(ctx, args[0], args[1])
 			},

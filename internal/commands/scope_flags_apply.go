@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
@@ -86,13 +87,21 @@ func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Outpu
 		if t.Repo == "" {
 			continue
 		}
-		candidates := scope.NormalizeRepoURLCandidates(t.Repo)
-		if len(candidates) > 1 {
-			styledOut.Warning(fmt.Sprintf(
-				"%s uses an SSH alias resolving to %s on this machine; storing %s — pass the real hostname if teammates should match it",
-				t.Repo, candidates[1], candidates[0]))
-		}
+		warnAliasRepoURL(t.Repo, styledOut)
 	}
+}
+
+// warnAliasRepoURL warns when a single repo URL's host is a local SSH
+// alias, naming the host it resolves to on this machine.
+func warnAliasRepoURL(repoURL string, styledOut *ui.Output) {
+	candidates := scope.NormalizeRepoURLCandidates(repoURL)
+	if len(candidates) < 2 {
+		return
+	}
+	resolvedHost, _, _ := strings.Cut(candidates[1], "/")
+	styledOut.Warning(fmt.Sprintf(
+		"%s uses an SSH alias for %s on this machine; storing %s — pass the real hostname if teammates should match it",
+		repoURL, resolvedHost, candidates[0]))
 }
 
 // unionTargets concatenates two target lists, deduping by display identity so

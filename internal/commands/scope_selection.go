@@ -304,6 +304,7 @@ func modifyScopes(current []vault.InstallTarget, allowIdentity bool, styledOut *
 				styledOut.Error(fmt.Sprintf("Failed to add repo scope: %v", err))
 				continue
 			}
+			warnAliasRepoURL(repoURL, styledOut)
 			t := vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: repoURL}
 			working = append(working, t)
 			changedScope = true
@@ -315,6 +316,7 @@ func modifyScopes(current []vault.InstallTarget, allowIdentity bool, styledOut *
 				styledOut.Error(fmt.Sprintf("Failed to add path scope: %v", err))
 				continue
 			}
+			warnAliasRepoURL(repoURL, styledOut)
 			paths, err := promptForRepositoryPaths(styledOut, repoURL, ioc)
 			if err != nil {
 				styledOut.Error(fmt.Sprintf("Failed to collect paths: %v", err))

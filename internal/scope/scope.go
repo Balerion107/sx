@@ -267,12 +267,16 @@ func sshHostAndPath(repoURL string) (host, path string) {
 // paths (c:/repos/x) are never mistaken for remotes.
 //
 // In userless input only, a leading port-like segment (all digits,
-// ≤ 65535) after the colon is dropped: rows persisted by the
-// pre-alias normalizer kept the port ("gitea.corp.com:3000/acme/x",
-// "ghe.corp:2222/acme/x" from ssh:// remotes) and came from u.Host,
-// so they never carry userinfo. Real scp remotes are written with
-// "user@", so a numeric owner like git@github.com:123/repo is left
-// intact rather than mistaken for a port.
+// ≤ 65535) after the colon is dropped when at least owner/repo
+// remains behind it: rows persisted by the pre-alias normalizer kept
+// the port ("gitea.corp.com:3000/acme/x", "ghe.corp:2222/acme/x"
+// from ssh:// remotes), came from u.Host (never userinfo), and were
+// always host:port/owner/repo. A userless scp remote for an all-digit
+// owner is host:owner/repo — one segment shorter — so requiring two
+// segments after the candidate port separates the shapes:
+// "github.com:123/repo" keeps its numeric owner while
+// "gitea.corp.com:3000/acme/x" sheds its port. Remotes written with
+// "user@" never hit the port branch at all.
 func splitSCPLike(s string) (host, path string, ok bool) {
 	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
@@ -295,7 +299,7 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 	}
 	path = s[colon+1:]
 	if !hadUser {
-		if slash := strings.IndexByte(path, '/'); slash > 0 && looksLikePort(path[:slash]) {
+		if slash := strings.IndexByte(path, '/'); slash > 0 && looksLikePort(path[:slash]) && strings.Count(path[slash+1:], "/") >= 1 {
 			path = path[slash+1:]
 		} else if looksLikePort(path) {
 			// "host:3000" is a host and port, not a repository.

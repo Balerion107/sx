@@ -21,6 +21,9 @@ Host wild*
 Host eqform
     HostName=eq.example.com
 
+Host = spacedeq
+    HostName = spaced.example.com
+
 Host token
     HostName %h.internal.corp
 
@@ -49,6 +52,7 @@ Host CaseHost
 		{"gh-work", "github.com", true},
 		{"github.com-work", "github.com", true},
 		{"eqform", "eq.example.com", true},
+		{"spacedeq", "spaced.example.com", true},
 		{"token", "token.internal.corp", true},
 		{"dupe", "first.example.com", true},
 		{"casehost", "mixedcase.example.com", true},
@@ -73,6 +77,7 @@ func TestSplitSSHConfigLine(t *testing.T) {
 	}{
 		{"HostName github.com", "HostName", "github.com", true},
 		{"HostName=github.com", "HostName", "github.com", true},
+		{"HostName = github.com", "HostName", "github.com", true},
 		{"HostName\tgithub.com", "HostName", "github.com", true},
 		{`HostName "github.com"`, "HostName", "github.com", true},
 		{"solo", "", "", false},

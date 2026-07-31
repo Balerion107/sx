@@ -29,7 +29,7 @@ func TestWarnAliasScopeTargets(t *testing.T) {
 	}, styledOut)
 
 	combined := out.String() + errOut.String()
-	if !strings.Contains(combined, "git@workgit:acme/x.git uses an SSH alias resolving to github.com/acme/x") {
+	if !strings.Contains(combined, "git@workgit:acme/x.git uses an SSH alias for github.com on this machine; storing workgit/acme/x") {
 		t.Fatalf("missing alias warning, got:\n%s", combined)
 	}
 	if strings.Contains(combined, "github.com/acme/y") {

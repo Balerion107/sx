@@ -92,10 +92,14 @@ func parseSSHConfigHosts(content string) map[string]string {
 }
 
 // splitSSHConfigLine splits an ssh_config line into keyword and
-// argument, accepting both "Key value" and "Key=value" forms.
+// argument. ssh_config(5) allows whitespace or an "=" (optionally
+// surrounded by whitespace) as the separator, so "Key value",
+// "Key=value", and "Key = value" must all parse.
 func splitSSHConfigLine(line string) (key, value string, ok bool) {
 	if i := strings.IndexAny(line, " \t="); i > 0 {
-		return line[:i], strings.Trim(strings.TrimSpace(line[i+1:]), `"`), true
+		value = strings.TrimSpace(line[i+1:])
+		value = strings.TrimSpace(strings.TrimPrefix(value, "="))
+		return line[:i], strings.Trim(value, `"`), true
 	}
 	return "", "", false
 }
