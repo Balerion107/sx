@@ -235,8 +235,8 @@ func printDryRunCurrentScope(w io.Writer, current *scope.Scope) {
 	if s == "" {
 		return
 	}
-	if current.RepoURL != "" {
-		s += " (" + scope.NormalizeRepoURL(current.RepoURL) + ")"
+	if normalized := scope.NormalizeRepoURL(current.RepoURL); current.RepoURL != "" && normalized != current.RepoURL {
+		s += " (" + normalized + ")"
 	}
 	fmt.Fprintln(w, "# Current scope:", s)
 }
@@ -250,7 +250,11 @@ func printDryRunScopeSkips(w io.Writer, skips *scopeSkips) {
 		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", n)
 	}
 	if n := skips.NearMiss(); n > 0 {
-		fmt.Fprintf(w, "# %d of them name the same owner/repo path as this repo but a different host:\n", n)
+		verb := "name"
+		if n == 1 {
+			verb = "names"
+		}
+		fmt.Fprintf(w, "# %d of them %s the same owner/repo path as this repo but a different host:\n", n, verb)
 		for _, detail := range skips.NearMissDetails() {
 			fmt.Fprintf(w, "#   %s\n", detail)
 		}

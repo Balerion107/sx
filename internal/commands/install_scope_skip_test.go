@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,7 +126,7 @@ func TestPrintDryRunPreview_ReportsScopeSkips(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "# Current scope: git@github.com:acme/app.git (github.com/acme/app)") ||
 		!strings.Contains(out, "# 3 asset(s) skipped: scope does not match this context") ||
-		!strings.Contains(out, "# 1 of them name the same owner/repo path as this repo but a different host:") ||
+		!strings.Contains(out, "# 1 of them names the same owner/repo path as this repo but a different host:") ||
 		!strings.Contains(out, "#   a: scoped to https://ghe.corp/acme/app (ghe.corp/acme/app)") {
 		t.Fatalf("dry-run output missing skip lines:\n%s", out)
 	}
@@ -145,5 +146,50 @@ func TestPrintDryRunPreview_ReportsScopeSkips(t *testing.T) {
 	printDryRunPreview(&buf, assets, env, map[string]string{}, false, &scopeSkips{})
 	if strings.Contains(buf.String(), "skipped") {
 		t.Fatalf("unexpected skip line with zero skips:\n%s", buf.String())
+	}
+}
+
+func TestMergeApplicableAssets_DependencyClearsSkip(t *testing.T) {
+	stubSSHHostLookup(t)
+	clientList := []clients.Client{&stubClient{id: "claude-code"}}
+
+	// helper is scoped to a repo the current context doesn't match, but
+	// the global main-skill depends on it: dependency resolution pulls
+	// it back in and it installs, so it must not be counted as skipped.
+	lf := &lockfile.LockFile{LockVersion: "1"}
+	lf.Assets = append(lf.Assets,
+		lockfile.Asset{
+			Name: "main-skill", Version: "1.0.0", Type: asset.TypeSkill,
+			Dependencies: []lockfile.Dependency{{Name: "helper", Version: "1.0.0"}},
+		},
+		lockfile.Asset{
+			Name: "helper", Version: "1.0.0", Type: asset.TypeSkill,
+			Scopes: []lockfile.Scope{{Repo: "https://github.com/acme/app"}},
+		},
+		lockfile.Asset{
+			Name: "other", Version: "1.0.0", Type: asset.TypeSkill,
+			Scopes: []lockfile.Scope{{Repo: "https://github.com/acme/other"}},
+		},
+	)
+	locks := []profileLockFile{{ProfileName: "default", LockFile: lf}}
+
+	matcher := scope.NewMatcher(&scope.Scope{
+		Type:    scope.TypeRepo,
+		RepoURL: "git@sx-test-unresolvable.invalid:acme/app.git",
+	})
+	sorted, _, _, skips, err := mergeApplicableAssets(locks, clientList, matcher)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	names := mergeAssetNames(sorted)
+	if !slices.Contains(names, "helper") {
+		t.Fatalf("helper should be resolved as a dependency, got %v", names)
+	}
+	if skips.Skipped() != 1 {
+		t.Fatalf("Skipped() = %d, want 1 (only 'other'; resolved helper must be unrecorded)", skips.Skipped())
+	}
+	if skips.NearMiss() != 0 {
+		t.Fatalf("NearMiss() = %d, want 0 (helper's near miss cleared on resolve)", skips.NearMiss())
 	}
 }

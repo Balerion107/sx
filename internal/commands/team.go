@@ -142,10 +142,18 @@ are added — you are not added automatically.`,
 
 			// Canonical on write: store the same form `sx team repo add`
 			// would, so one repo can't end up listed under two spellings.
+			// Same alias note as `team repo add`, and only for backends
+			// that persist the host.
 			normalizedRepos := make([]string, 0, len(repos))
 			for _, r := range repos {
 				if n := scope.NormalizeRepoURL(r); n != "" {
 					normalizedRepos = append(normalizedRepos, n)
+				}
+			}
+			if vault.PersistsRepoHost(v) {
+				noteOut := ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
+				for _, r := range repos {
+					warnAliasRepoURL(r, noteOut)
 				}
 			}
 
@@ -376,7 +384,7 @@ func runTeamMutationWithNote(cmd *cobra.Command, team string, note func(v vault.
 	if err := requireTeamAdmin(ctx, v, team); err != nil {
 		return err
 	}
-	if note != nil && vaultPersistsRepoHost(v) {
+	if note != nil && vault.PersistsRepoHost(v) {
 		note(v)
 	}
 	status := components.NewStatus(cmd.OutOrStdout())
@@ -387,15 +395,6 @@ func runTeamMutationWithNote(cmd *cobra.Command, team string, note func(v vault.
 	}
 	status.Done(doneMsg)
 	return nil
-}
-
-// vaultPersistsRepoHost reports whether the vault stores repository
-// rows with their host. The Sleuth backend resolves repositories to
-// server-side entities by owner/name (trailingOwnerName), so an SSH
-// alias in the URL's host never reaches stored data there.
-func vaultPersistsRepoHost(v vault.Vault) bool {
-	_, isSleuth := v.(*vault.SleuthVault)
-	return !isSleuth
 }
 
 // requireTeamAdmin verifies the current actor is a team admin. This is a

@@ -19,7 +19,7 @@ import (
 //   - otherwise → open the interactive scope editor.
 func resolveAddScope(out *outputHelper, v vaultpkg.Vault, name, version string, current []vaultpkg.InstallTarget, installed bool, opts addOptions) (*scopeResult, error) {
 	if opts.hasScopeFlags() {
-		return resolveScopeFromFlags(out, name, current, installed, opts.toScopeFlags(), opts.Yes)
+		return resolveScopeFromFlags(out, v, name, current, installed, opts.toScopeFlags(), opts.Yes)
 	}
 	if opts.isNonInteractive() {
 		return opts.getScopes()
@@ -33,7 +33,7 @@ func resolveAddScope(out *outputHelper, v vaultpkg.Vault, name, version string, 
 // shortcut to the menu's outcome, not a way to skip the human's approval. Both
 // `sx add` and `sx install` feed their (already-folded) scopeFlags through here,
 // so the two commands resolve and confirm scope identically.
-func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.InstallTarget, installed bool, flags scopeFlags, autoYes bool) (*scopeResult, error) {
+func resolveScopeFromFlags(out *outputHelper, v vaultpkg.Vault, name string, current []vaultpkg.InstallTarget, installed bool, flags scopeFlags, autoYes bool) (*scopeResult, error) {
 	change, err := resolveScopeFlags(flags)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,9 @@ func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.In
 	styledOut.Newline()
 	styledOut.Header("Scope for " + name)
 	displayCurrentTargets(current, installed, styledOut)
-	warnAliasScopeTargets(change.Targets, styledOut)
+	if vaultpkg.PersistsRepoHost(v) {
+		warnAliasScopeTargets(change.Targets, styledOut)
+	}
 
 	if !displayScopeChanges(current, after, styledOut) {
 		styledOut.Info("No changes to apply.")
@@ -82,6 +84,8 @@ func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.In
 // SSH alias in this machine's ~/.ssh/config. What gets stored stays
 // literal — the note makes the trap visible while the user can still
 // pass the real hostname so teammates' remotes match the stored scope.
+// Callers gate on vaultpkg.PersistsRepoHost: on backends that resolve
+// URLs to server-side entities the "storing …" claim would be false.
 func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Output) {
 	for _, t := range targets {
 		if t.Repo == "" {

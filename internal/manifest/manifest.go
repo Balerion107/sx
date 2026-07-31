@@ -594,9 +594,10 @@ func (m *Manifest) RemoveOrgAdmin(email string) bool {
 }
 
 // normalizeTeamInPlace trims and deduplicates a team's string slices. The
-// name and description are trimmed; members, admins, and repositories are
-// normalized (lowercase emails, url-normalized repos) and sorted for
-// deterministic serialization.
+// name and description are trimmed; members and admins are normalized
+// (lowercase emails); repositories are cleaned (trim/lowercase, drop
+// ".git"/trailing slash) but never URL-collapsed — see normalizeRepos.
+// All slices are sorted for deterministic serialization.
 func normalizeTeamInPlace(t *Team) {
 	t.Name = strings.TrimSpace(t.Name)
 	t.Description = strings.TrimSpace(t.Description)

@@ -247,6 +247,15 @@ func mergeApplicableAssets(
 			conflicts = append(conflicts, *conflictByName[n])
 		}
 	}
+
+	// An asset can be scope-skipped and still end up resolved: dependency
+	// resolution pulls missing dependencies from the full lock file
+	// regardless of scope, and another profile can resolve a name this
+	// profile skipped. Anything that resolved installs, so it must not
+	// also be reported as skipped.
+	for name := range assetOrigin {
+		skips.unrecord(name)
+	}
 	return sortedAssets, assetOrigin, conflicts, skips, nil
 }
 

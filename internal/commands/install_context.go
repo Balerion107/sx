@@ -168,19 +168,34 @@ func (s *scopeSkips) record(asset *lockfile.Asset, matcher *scope.Matcher) {
 	}
 }
 
+// unrecord drops an asset from the skip counts. Dependency resolution
+// re-adds a scope-skipped asset when something applicable depends on
+// it, and a multi-profile merge can resolve a name another profile
+// skipped — either way the asset installs, and reporting it as skipped
+// in the same run would contradict the resolved list.
+func (s *scopeSkips) unrecord(name string) {
+	delete(s.skippedNames, name)
+	delete(s.nearMissRepos, name)
+}
+
 func (s *scopeSkips) Skipped() int  { return len(s.skippedNames) }
 func (s *scopeSkips) NearMiss() int { return len(s.nearMissRepos) }
 
 // NearMissDetails returns "name: scoped to repo (normalized)" lines,
 // sorted by asset name for deterministic output. The normalized form
 // is what matching actually compared, so the user can see exactly
-// which side failed to reduce to the expected host/owner/repo.
+// which side failed to reduce to the expected host/owner/repo; it is
+// omitted when the stored value is already in normalized form.
 func (s *scopeSkips) NearMissDetails() []string {
 	names := slices.Sorted(maps.Keys(s.nearMissRepos))
 	details := make([]string, 0, len(names))
 	for _, name := range names {
 		repo := s.nearMissRepos[name]
-		details = append(details, fmt.Sprintf("%s: scoped to %s (%s)", name, repo, scope.NormalizeRepoURL(repo)))
+		if normalized := scope.NormalizeRepoURL(repo); normalized != repo {
+			details = append(details, fmt.Sprintf("%s: scoped to %s (%s)", name, repo, normalized))
+		} else {
+			details = append(details, fmt.Sprintf("%s: scoped to %s", name, repo))
+		}
 	}
 	return details
 }

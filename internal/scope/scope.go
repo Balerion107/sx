@@ -232,6 +232,22 @@ func MatchStoredRepoURL(stored, remote string) bool {
 	return legacy != "" && slices.Contains(NormalizeRepoURLCandidates(remote), legacy)
 }
 
+// CanonicalizeStoredRepoRow returns the modern canonical form of an
+// EXISTING stored scope row: a legacy ported row collapses to its
+// portless reading, everything else to the plain normalization. For
+// migrations (sx vault copy) that re-persist stored rows through the
+// user-input write paths — those paths apply NormalizeRepoURL, which
+// would turn "gitea.corp.com:3000/acme/x" into the dead slash form
+// "gitea.corp.com/3000/acme/x" that no reading reconciles. Never use
+// this on live user input: a userless numeric segment in fresh input
+// is kept literal by design (see splitSCPLike).
+func CanonicalizeStoredRepoRow(stored string) string {
+	if legacy := legacyPortedForm(stored); legacy != "" {
+		return legacy
+	}
+	return NormalizeRepoURL(stored)
+}
+
 // StoredRepoRowMatches reports whether a stored repo row and a
 // user-supplied needle name the same repository, for vault WRITE
 // paths: normalized equality plus the stored row's legacy ported
@@ -365,9 +381,10 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 	return host, path, true
 }
 
-// looksLikePort reports whether s is a valid TCP port number.
+// looksLikePort reports whether s is a valid TCP port number as a
+// port would actually be written — no leading zeros, 1..65535.
 func looksLikePort(s string) bool {
-	if s == "" || len(s) > 5 {
+	if s == "" || len(s) > 5 || s[0] == '0' {
 		return false
 	}
 	n := 0

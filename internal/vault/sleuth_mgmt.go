@@ -303,7 +303,7 @@ func (s *SleuthVault) setTeamRepositories(ctx context.Context, team, repoURL str
 		// Mirror the git/path vaults' behavior: a removal that matches
 		// nothing is surfaced, not reported as success.
 		if _, ok := desired[targetKey]; !ok {
-			return fmt.Errorf("no repository matching %q in team %s", repoURL, team)
+			return fmt.Errorf("no repository matching %q in team %s", strings.TrimSpace(repoURL), team)
 		}
 		delete(desired, targetKey)
 	}

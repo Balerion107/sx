@@ -183,6 +183,26 @@ func TestMatchStoredRepoURL_LegacyPortedRows(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeStoredRepoRow(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	tests := []struct{ in, want string }{
+		{"gitea.corp.com:3000/acme/x", "gitea.corp.com/acme/x"},
+		{"ghe.corp:2222/acme/x", "ghe.corp/acme/x"},
+		{"github.com/acme/x", "github.com/acme/x"},
+		{"https://github.com/acme/x.git", "github.com/acme/x"},
+		// Not legacy-shaped: numeric owner (2 segments) and one-segment
+		// rows keep their literal normalization.
+		{"github.com:123/repo", "github.com/123/repo"},
+		{"ghe.corp:2222/tools", "ghe.corp/2222/tools"},
+	}
+	for _, tt := range tests {
+		if got := CanonicalizeStoredRepoRow(tt.in); got != tt.want {
+			t.Errorf("CanonicalizeStoredRepoRow(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestStoredRepoRowMatches(t *testing.T) {
 	withSSHHostStub(t, map[string]string{"workgit": "github.com"})
 

@@ -153,7 +153,7 @@ func promptForRepositoriesWithUI(assetName, version string, current []vault.Inst
 		// setter (the Sleuth/skills.new vault). File-backed vaults stay
 		// repo/path-only.
 		_, allowIdentity := v.(installSetter)
-		working, added, removed, err := modifyScopes(current, allowIdentity, styledOut, ioc)
+		working, added, removed, err := modifyScopes(current, allowIdentity, vault.PersistsRepoHost(v), styledOut, ioc)
 		if err != nil {
 			return nil, err
 		}
@@ -249,11 +249,13 @@ func removeScopesInteractive(ioc *components.IOContext, styledOut *ui.Output, wo
 
 // modifyScopes runs the interactive scope editor over a kind-aware target
 // list. allowIdentity gates the team/user/bot actions to vaults that can
-// persist them. It returns the edited working set plus the diff against the
-// original — added (newly introduced) and removed (dropped, still carrying the
-// original's server EntityID). On cancel it returns the original with empty
+// persist them; hostPersisting gates the SSH-alias note to vaults that
+// store repo hosts (vault.PersistsRepoHost). It returns the edited
+// working set plus the diff against the original — added (newly
+// introduced) and removed (dropped, still carrying the original's
+// server EntityID). On cancel it returns the original with empty
 // diffs, so nothing is applied.
-func modifyScopes(current []vault.InstallTarget, allowIdentity bool, styledOut *ui.Output, ioc *components.IOContext) (working, added, removed []vault.InstallTarget, err error) {
+func modifyScopes(current []vault.InstallTarget, allowIdentity, hostPersisting bool, styledOut *ui.Output, ioc *components.IOContext) (working, added, removed []vault.InstallTarget, err error) {
 	// Clone current state (so we can cancel without side effects)
 	working = append([]vault.InstallTarget(nil), current...)
 	original := append([]vault.InstallTarget(nil), current...)
@@ -304,7 +306,9 @@ func modifyScopes(current []vault.InstallTarget, allowIdentity bool, styledOut *
 				styledOut.Error(fmt.Sprintf("Failed to add repo scope: %v", err))
 				continue
 			}
-			warnAliasRepoURL(repoURL, styledOut)
+			if hostPersisting {
+				warnAliasRepoURL(repoURL, styledOut)
+			}
 			t := vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: repoURL}
 			working = append(working, t)
 			changedScope = true
@@ -316,7 +320,9 @@ func modifyScopes(current []vault.InstallTarget, allowIdentity bool, styledOut *
 				styledOut.Error(fmt.Sprintf("Failed to add path scope: %v", err))
 				continue
 			}
-			warnAliasRepoURL(repoURL, styledOut)
+			if hostPersisting {
+				warnAliasRepoURL(repoURL, styledOut)
+			}
 			paths, err := promptForRepositoryPaths(styledOut, repoURL, ioc)
 			if err != nil {
 				styledOut.Error(fmt.Sprintf("Failed to collect paths: %v", err))
