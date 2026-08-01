@@ -159,8 +159,22 @@ func NormalizeRepoURL(repoURL string) string {
 	}
 
 	u, err := url.Parse(cleaned)
-	if err != nil || u.Host == "" {
-		// Not URL-shaped (or already normalized to host/path form).
+	if err != nil {
+		return cleaned
+	}
+	if u.Host == "" {
+		// Local paths and file:// URLs identify a repository by path
+		// alone — reduce them as the pre-branch normalizer did, so
+		// /srv/git/x, file:///srv/git/x, and rows stored by older sx
+		// versions (srv/git/x) all agree. Everything else host-less
+		// (opaque forms like "gitea.corp.com:3000", Windows drive
+		// paths whose scheme parses as the drive letter, already
+		// normalized host/path strings) stays as-is.
+		if u.Scheme == "" || u.Scheme == "file" {
+			if p := strings.TrimPrefix(u.Path, "/"); p != "" {
+				return p
+			}
+		}
 		return cleaned
 	}
 	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
@@ -358,23 +372,45 @@ func splitSCPLike(s string) (host, path string, ok bool) {
 	if strings.Contains(s, "://") || strings.ContainsAny(s, " \t") {
 		return "", "", false
 	}
-	colon := strings.IndexByte(s, ':')
-	if colon <= 0 || colon == len(s)-1 {
-		return "", "", false
-	}
-	if slash := strings.IndexByte(s, '/'); slash >= 0 && slash < colon {
-		return "", "", false
-	}
-	host = s[:colon]
+	rest := s
 	hadUser := false
-	if at := strings.IndexByte(host, '@'); at >= 0 {
-		host = host[at+1:]
-		hadUser = true
+	// Optional userinfo: an '@' that precedes the first colon belongs
+	// to the user part, matching git's parse.
+	if at := strings.IndexByte(rest, '@'); at > 0 {
+		if colon := strings.IndexByte(rest, ':'); colon > at {
+			rest = rest[at+1:]
+			hadUser = true
+		}
+	}
+	// Bracketed IPv6 hosts carry colons inside the brackets
+	// ("[2001:db8::1]:acme/x"); the host/path separator is the colon
+	// after "]". The brackets are stripped so the host agrees with
+	// url.URL.Hostname(), which returns the address unbracketed.
+	var colon int
+	if strings.HasPrefix(rest, "[") {
+		end := strings.IndexByte(rest, ']')
+		if end < 0 || end+1 >= len(rest) || rest[end+1] != ':' {
+			return "", "", false
+		}
+		host = rest[1:end]
+		colon = end + 1
+	} else {
+		colon = strings.IndexByte(rest, ':')
+		if colon <= 0 {
+			return "", "", false
+		}
+		host = rest[:colon]
+	}
+	if colon == len(rest)-1 {
+		return "", "", false
+	}
+	if slash := strings.IndexByte(rest, '/'); slash >= 0 && slash < colon {
+		return "", "", false
 	}
 	if len(host) <= 1 {
 		return "", "", false
 	}
-	path = s[colon+1:]
+	path = rest[colon+1:]
 	if !hadUser && looksLikePort(path) {
 		return "", "", false
 	}

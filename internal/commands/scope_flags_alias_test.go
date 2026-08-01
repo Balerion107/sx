@@ -24,13 +24,18 @@ func TestWarnAliasScopeTargets(t *testing.T) {
 
 	warnAliasScopeTargets([]vaultpkg.InstallTarget{
 		{Kind: vaultpkg.InstallKindRepo, Repo: "git@workgit:acme/x.git"},
+		{Kind: vaultpkg.InstallKindPath, Repo: "git@workgit:acme/x.git", Paths: []string{"services/api"}},
 		{Kind: vaultpkg.InstallKindRepo, Repo: "https://github.com/acme/y"},
 		{Kind: vaultpkg.InstallKindTeam, Team: "platform"},
 	}, styledOut)
 
 	combined := out.String() + errOut.String()
-	if !strings.Contains(combined, `~/.ssh/config maps "workgit" to "github.com" on this machine; storing workgit/acme/x`) {
+	note := `~/.ssh/config maps "workgit" to "github.com" on this machine; storing workgit/acme/x`
+	if !strings.Contains(combined, note) {
 		t.Fatalf("missing alias note, got:\n%s", combined)
+	}
+	if strings.Count(combined, note) != 1 {
+		t.Fatalf("note should print once per repo, not per target, got:\n%s", combined)
 	}
 	if strings.Contains(combined, "github.com/acme/y") {
 		t.Fatalf("non-alias target should not warn, got:\n%s", combined)

@@ -45,6 +45,10 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"numeric owner userless", "github.com:123/repo", "github.com/123/repo"},
 		{"numeric path segment kept", "gitea.corp.com:2024/team/app", "gitea.corp.com/2024/team/app"},
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
+		{"absolute local path", "/srv/git/x", "srv/git/x"},
+		{"file url", "file:///srv/git/x.git", "srv/git/x"},
+		{"scp ipv6", "[2001:db8::1]:acme/x.git", "2001:db8::1/acme/x"},
+		{"scp ipv6 with user", "git@[2001:db8::1]:acme/x.git", "2001:db8::1/acme/x"},
 		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},
 	}
@@ -84,6 +88,31 @@ func TestMatchRepoURLs_SelfHostedSCP(t *testing.T) {
 
 	if !MatchRepoURLs("git@ghe.corp.com:acme/x.git", "https://ghe.corp.com/acme/x") {
 		t.Error("self-hosted scp remote should match https scope")
+	}
+}
+
+func TestMatchRepoURLs_LocalAndFileForms(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	// A local clone's remote can be a bare path or a file:// URL; both
+	// must match each other and rows stored by older sx versions
+	// ("srv/git/x").
+	for _, pair := range [][2]string{
+		{"/srv/git/x", "file:///srv/git/x"},
+		{"/srv/git/x", "srv/git/x"},
+		{"file:///srv/git/x.git", "srv/git/x"},
+	} {
+		if !MatchRepoURLs(pair[0], pair[1]) {
+			t.Errorf("MatchRepoURLs(%q, %q) = false, want true", pair[0], pair[1])
+		}
+	}
+}
+
+func TestMatchRepoURLs_IPv6(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	if !MatchRepoURLs("[2001:db8::1]:acme/x.git", "ssh://git@[2001:db8::1]/acme/x") {
+		t.Error("bracketed IPv6 scp remote should match its ssh:// form")
 	}
 }
 

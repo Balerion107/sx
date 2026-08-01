@@ -92,8 +92,12 @@ func (o *Output) Error(msg string) {
 	}
 }
 
-// Warning prints a warning message to stderr.
+// Warning prints a warning message to stderr. Honors silent mode like
+// every other method, so SetSilent(hookMode) means what it says.
 func (o *Output) Warning(msg string) {
+	if o.silent {
+		return
+	}
 	sym := o.theme.Symbols().Warning
 	style := o.theme.Styles().Warning
 	text := sym + " " + msg

@@ -91,10 +91,18 @@ func resolveScopeFromFlags(out *outputHelper, v vaultpkg.Vault, name string, cur
 // Callers gate on vaultpkg.PersistsRepoHost: on backends that resolve
 // URLs to server-side entities the "storing …" claim would be false.
 func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Output) {
+	// One note per repository: several path targets (or URL spellings)
+	// of the same repo would otherwise repeat identical text.
+	noted := make(map[string]struct{}, len(targets))
 	for _, t := range targets {
 		if t.Repo == "" {
 			continue
 		}
+		key := scope.NormalizeRepoURL(t.Repo)
+		if _, dup := noted[key]; dup {
+			continue
+		}
+		noted[key] = struct{}{}
 		warnAliasRepoURL(t.Repo, styledOut)
 	}
 }

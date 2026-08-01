@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
-	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
 	"github.com/sleuth-io/sx/v2/internal/ui/components"
 	"github.com/sleuth-io/sx/v2/internal/vault"
@@ -140,21 +139,15 @@ are added — you are not added automatically.`,
 				}
 			}
 
-			// Canonical on write: store the same form `sx team repo add`
-			// would, so one repo can't end up listed under two spellings.
-			normalizedRepos := make([]string, 0, len(repos))
-			for _, r := range repos {
-				if n := scope.NormalizeRepoURL(r); n != "" {
-					normalizedRepos = append(normalizedRepos, n)
-				}
-			}
-
+			// Canonicalization happens in the vault layer
+			// (commonCreateTeam), same as `sx team repo add`, so every
+			// caller — not just this command — stores canonical rows.
 			team := mgmt.Team{
 				Name:         args[0],
 				Description:  description,
 				Members:      allMembers,
 				Admins:       effectiveAdmins,
-				Repositories: normalizedRepos,
+				Repositories: repos,
 			}
 
 			status := components.NewStatus(cmd.OutOrStdout())
