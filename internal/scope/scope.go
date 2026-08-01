@@ -333,7 +333,7 @@ func legacyPortedForm(repoURL string) string {
 	if slash <= 0 || !looksLikePort(path[:slash]) || strings.Count(path[slash+1:], "/") < 1 {
 		return ""
 	}
-	return host + "/" + path[slash+1:]
+	return bracketIPv6(host) + "/" + path[slash+1:]
 }
 
 // lookupSSHHostname resolves an SSH host alias to its configured

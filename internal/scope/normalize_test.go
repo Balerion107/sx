@@ -226,6 +226,7 @@ func TestCanonicalizeStoredRepoRow(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"gitea.corp.com:3000/acme/x", "gitea.corp.com/acme/x"},
 		{"ghe.corp:2222/acme/x", "ghe.corp/acme/x"},
+		{"[2001:db8::1]:2222/acme/x", "[2001:db8::1]/acme/x"},
 		{"github.com/acme/x", "github.com/acme/x"},
 		{"https://github.com/acme/x.git", "github.com/acme/x"},
 		// Not legacy-shaped: numeric owner (2 segments) and one-segment
@@ -234,9 +235,24 @@ func TestCanonicalizeStoredRepoRow(t *testing.T) {
 		{"ghe.corp:2222/tools", "ghe.corp/2222/tools"},
 	}
 	for _, tt := range tests {
-		if got := CanonicalizeStoredRepoRow(tt.in); got != tt.want {
+		got := CanonicalizeStoredRepoRow(tt.in)
+		if got != tt.want {
 			t.Errorf("CanonicalizeStoredRepoRow(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+		// Canonical output feeds vault copy's write paths, which apply
+		// NormalizeRepoURL — it must be a fixed point or migration
+		// re-splits it (the unbracketed-IPv6 bug class).
+		if again := NormalizeRepoURL(got); again != got {
+			t.Errorf("not a fixed point: NormalizeRepoURL(%q) = %q", got, again)
+		}
+	}
+}
+
+func TestMatchStoredRepoURL_LegacyIPv6(t *testing.T) {
+	withSSHHostStub(t, nil)
+
+	if !MatchStoredRepoURL("[2001:db8::1]:2222/acme/x", "ssh://git@[2001:db8::1]:2222/acme/x") {
+		t.Error("legacy ported IPv6 row should match its live ssh form")
 	}
 }
 
