@@ -1,6 +1,10 @@
 package commands
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
 	"github.com/sleuth-io/sx/v2/internal/ui/components"
 	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
@@ -15,7 +19,7 @@ import (
 //   - otherwise → open the interactive scope editor.
 func resolveAddScope(out *outputHelper, v vaultpkg.Vault, name, version string, current []vaultpkg.InstallTarget, installed bool, opts addOptions) (*scopeResult, error) {
 	if opts.hasScopeFlags() {
-		return resolveScopeFromFlags(out, name, current, installed, opts.toScopeFlags(), opts.Yes)
+		return resolveScopeFromFlags(out, v, name, current, installed, opts.toScopeFlags(), opts.Yes)
 	}
 	if opts.isNonInteractive() {
 		return opts.getScopes()
@@ -29,7 +33,7 @@ func resolveAddScope(out *outputHelper, v vaultpkg.Vault, name, version string, 
 // shortcut to the menu's outcome, not a way to skip the human's approval. Both
 // `sx add` and `sx install` feed their (already-folded) scopeFlags through here,
 // so the two commands resolve and confirm scope identically.
-func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.InstallTarget, installed bool, flags scopeFlags, autoYes bool) (*scopeResult, error) {
+func resolveScopeFromFlags(out *outputHelper, v vaultpkg.Vault, name string, current []vaultpkg.InstallTarget, installed bool, flags scopeFlags, autoYes bool) (*scopeResult, error) {
 	change, err := resolveScopeFlags(flags)
 	if err != nil {
 		return nil, err
@@ -66,11 +70,87 @@ func resolveScopeFromFlags(out *outputHelper, name string, current []vaultpkg.In
 		}
 	}
 
+	// Note only once the write is going to proceed — after the
+	// no-changes branch and the user's confirmation — so "storing …"
+	// never describes a value that was never stored.
+	if vaultpkg.PersistsRepoHost(v) {
+		warnAliasScopeTargets(change.Targets, styledOut)
+	}
+
 	return &scopeResult{
 		ApplyTargets: true,
 		Targets:      change.Targets,
 		Append:       change.Mode == scopeAdd,
 	}, nil
+}
+
+// warnAliasScopeTargets notes repo/path scope targets whose host is an
+// SSH alias in this machine's ~/.ssh/config. What gets stored stays
+// literal — the note makes the trap visible while the user can still
+// pass the real hostname so teammates' remotes match the stored scope.
+// Callers gate on vaultpkg.PersistsRepoHost: on backends that resolve
+// URLs to server-side entities the "storing …" claim would be false.
+func warnAliasScopeTargets(targets []vaultpkg.InstallTarget, styledOut *ui.Output) {
+	// One note per repository: several path targets (or URL spellings)
+	// of the same repo would otherwise repeat identical text.
+	noted := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		if t.Repo == "" {
+			continue
+		}
+		key := scope.NormalizeRepoURL(t.Repo)
+		if _, dup := noted[key]; dup {
+			continue
+		}
+		noted[key] = struct{}{}
+		warnAliasRepoURL(t.Repo, styledOut)
+	}
+}
+
+// warnAliasRepoURL notes when ~/.ssh/config remaps a repo URL's host
+// on this machine. The note states the mapping and the stored value
+// without prescribing a change: the same two-candidate signal covers
+// both a genuine alias (workgit → github.com — the user should pass
+// the real hostname) and a transport rewrite of the real host
+// (Host github.com / HostName ssh.github.com — the input is already
+// correct), and only the user can tell which one theirs is.
+func warnAliasRepoURL(repoURL string, styledOut *ui.Output) {
+	if mapping, ok := aliasNoteParts(repoURL); ok {
+		styledOut.Info(fmt.Sprintf(
+			"%s; storing %s — pass the real hostname if %q is a local-only alias",
+			mapping.prefix, mapping.literal, mapping.literalHost))
+	}
+}
+
+// warnAliasRepoURLForRemoval is the removal-path variant: nothing is
+// stored by a removal, so the note only states what the input will be
+// matched against — which explains a subsequent "no repository
+// matching" error when the row was written under a different form.
+func warnAliasRepoURLForRemoval(repoURL string, styledOut *ui.Output) {
+	if mapping, ok := aliasNoteParts(repoURL); ok {
+		styledOut.Info(fmt.Sprintf("%s; matching against %s", mapping.prefix, mapping.literal))
+	}
+}
+
+type aliasNote struct {
+	prefix      string
+	literal     string
+	literalHost string
+}
+
+func aliasNoteParts(repoURL string) (aliasNote, bool) {
+	resolved := scope.AliasResolvedForm(repoURL)
+	if resolved == "" {
+		return aliasNote{}, false
+	}
+	literal := scope.NormalizeRepoURL(repoURL)
+	literalHost, _, _ := strings.Cut(literal, "/")
+	resolvedHost, _, _ := strings.Cut(resolved, "/")
+	return aliasNote{
+		prefix:      fmt.Sprintf("~/.ssh/config maps %q to %q on this machine", literalHost, resolvedHost),
+		literal:     literal,
+		literalHost: literalHost,
+	}, true
 }
 
 // unionTargets concatenates two target lists, deduping by display identity so

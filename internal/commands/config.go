@@ -435,6 +435,16 @@ func getLatestVersion(assets []*lockfile.Asset) *lockfile.Asset {
 	return latest
 }
 
+// trackerRepoMatch compares a tracker entry's recorded repository (the
+// live remote at install time) against a stored scope row, applying the
+// stored-side legacy ported reading — an asset scoped by a legacy row
+// like "gitea.corp.com:3000/acme/x" installs via that reading, so its
+// status lookup must reconcile the same way. Tracker matchers call
+// matchRepo(installedRepo, storedScopeRepo), hence the argument swap.
+func trackerRepoMatch(installedRepo, storedScopeRepo string) bool {
+	return scope.MatchStoredRepoURL(storedScopeRepo, installedRepo)
+}
+
 // determineAssetStatus determines the installation status of an asset
 func determineAssetStatus(asset *lockfile.Asset, scopeName string, tracker *assets.Tracker) (AssetStatus, string, []string) {
 	if tracker == nil {
@@ -444,20 +454,20 @@ func determineAssetStatus(asset *lockfile.Asset, scopeName string, tracker *asse
 	var installed *assets.InstalledAsset
 	if asset.IsGlobal() {
 		// Global assets: check with empty repo/path
-		installed = tracker.FindAssetWithMatcher(asset.Name, "", "", scope.MatchRepoURLs)
+		installed = tracker.FindAssetWithMatcher(asset.Name, "", "", trackerRepoMatch)
 	} else {
 		// Scoped assets: check using the asset's own repo scope
 		// For the current scope we're displaying, find the matching repo entry
 		for _, repo := range asset.Scopes {
-			if scope.MatchRepoURLs(repo.Repo, scopeName) {
+			if scope.MatchStoredRepoURL(repo.Repo, scopeName) {
 				// Check repo-scoped installation
-				installed = tracker.FindAssetWithMatcher(asset.Name, repo.Repo, "", scope.MatchRepoURLs)
+				installed = tracker.FindAssetWithMatcher(asset.Name, repo.Repo, "", trackerRepoMatch)
 				if installed != nil {
 					break
 				}
 				// Also check path-scoped installations
 				for _, path := range repo.Paths {
-					installed = tracker.FindAssetWithMatcher(asset.Name, repo.Repo, path, scope.MatchRepoURLs)
+					installed = tracker.FindAssetWithMatcher(asset.Name, repo.Repo, path, trackerRepoMatch)
 					if installed != nil {
 						break
 					}

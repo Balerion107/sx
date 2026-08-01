@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sleuth-io/sx/v2/internal/assets"
@@ -141,24 +143,89 @@ func addForceEnabledClients(cfg *config.Config, registry *clients.Registry, exis
 	return existing
 }
 
-// filterAssetsByScope filters assets to those applicable to the current context
-func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher) []*lockfile.Asset {
+// scopeSkips summarizes assets excluded by scope matching, deduped by
+// asset name across profiles. Skipped is every supported asset whose
+// scope didn't match the current context; the near-miss subset holds
+// skipped assets with a scope naming the same owner/repo path as the
+// current remote — possibly a URL-form mismatch — mapped to the
+// offending scope repo so output can show exactly what didn't match.
+// The zero value is ready to use; record initializes lazily.
+type scopeSkips struct {
+	skippedNames  map[string]struct{}
+	nearMissRepos map[string]string
+}
+
+func (s *scopeSkips) record(asset *lockfile.Asset, matcher *scope.Matcher) {
+	if s.skippedNames == nil {
+		s.skippedNames = make(map[string]struct{})
+	}
+	s.skippedNames[asset.Name] = struct{}{}
+	if repo, ok := matcher.NearMissScope(asset); ok {
+		if s.nearMissRepos == nil {
+			s.nearMissRepos = make(map[string]string)
+		}
+		s.nearMissRepos[asset.Name] = repo
+	}
+}
+
+// unrecord drops an asset from the skip counts. Dependency resolution
+// re-adds a scope-skipped asset when something applicable depends on
+// it, and a multi-profile merge can resolve a name another profile
+// skipped — either way the asset installs, and reporting it as skipped
+// in the same run would contradict the resolved list.
+func (s *scopeSkips) unrecord(name string) {
+	delete(s.skippedNames, name)
+	delete(s.nearMissRepos, name)
+}
+
+func (s *scopeSkips) Skipped() int  { return len(s.skippedNames) }
+func (s *scopeSkips) NearMiss() int { return len(s.nearMissRepos) }
+
+// NearMissDetails returns "name: scoped to repo (normalized)" lines,
+// sorted by asset name for deterministic output. The normalized form
+// is what matching actually compared, so the user can see exactly
+// which side failed to reduce to the expected host/owner/repo; it is
+// omitted when the stored value is already in normalized form.
+func (s *scopeSkips) NearMissDetails() []string {
+	names := slices.Sorted(maps.Keys(s.nearMissRepos))
+	details := make([]string, 0, len(names))
+	for _, name := range names {
+		repo := s.nearMissRepos[name]
+		if normalized := scope.NormalizeRepoURL(repo); normalized != repo {
+			details = append(details, fmt.Sprintf("%s: scoped to %s (%s)", name, repo, normalized))
+		} else {
+			details = append(details, fmt.Sprintf("%s: scoped to %s", name, repo))
+		}
+	}
+	return details
+}
+
+// filterAssetsByScope filters assets to those applicable to the
+// current context, recording assets some target client supports that
+// were excluded only because their scope doesn't match — callers
+// surface those so scoped assets never disappear silently (e.g. an
+// SSH remote failing to match an https scope).
+func filterAssetsByScope(lf *lockfile.LockFile, targetClients []clients.Client, matcherScope *scope.Matcher, skips *scopeSkips) []*lockfile.Asset {
 	var applicableAssets []*lockfile.Asset
 	for i := range lf.Assets {
 		asset := &lf.Assets[i]
-		if isAssetApplicable(asset, targetClients, matcherScope) {
-			applicableAssets = append(applicableAssets, asset)
+		if !isAssetSupportedByAnyClient(asset, targetClients) {
+			continue
 		}
+		if !matcherScope.MatchesAsset(asset) {
+			skips.record(asset, matcherScope)
+			continue
+		}
+		applicableAssets = append(applicableAssets, asset)
 	}
 	return applicableAssets
 }
 
-// isAssetApplicable checks if an asset is supported by any target client and matches scope
-func isAssetApplicable(asset *lockfile.Asset, targetClients []clients.Client, matcherScope *scope.Matcher) bool {
+// isAssetSupportedByAnyClient checks if any target client both matches
+// the asset's client list and supports its type
+func isAssetSupportedByAnyClient(asset *lockfile.Asset, targetClients []clients.Client) bool {
 	for _, client := range targetClients {
-		if asset.MatchesClient(client.ID()) &&
-			client.SupportsAssetType(asset.Type) &&
-			matcherScope.MatchesAsset(asset) {
+		if asset.MatchesClient(client.ID()) && client.SupportsAssetType(asset.Type) {
 			return true
 		}
 	}

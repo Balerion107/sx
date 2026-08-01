@@ -18,6 +18,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/manifest"
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/vault"
 	"github.com/sleuth-io/sx/v2/internal/version"
 )
@@ -126,6 +127,11 @@ func copyTeams(ctx context.Context, src, dst vault.Vault, opts Options, r *Repor
 		}
 		r.Teams++
 		if opts.DryRun {
+			// Preview legacy-row rewrites in dry-run too, matching the
+			// asset-scope path, so the report is complete either way.
+			for _, repo := range full.Repositories {
+				warnLegacyRowRewrite(r, "team "+full.Name+" repo", repo, scope.CanonicalizeStoredRepoRow(repo))
+			}
 			continue
 		}
 		team := mgmt.Team{
@@ -139,8 +145,13 @@ func copyTeams(ctx context.Context, src, dst vault.Vault, opts Options, r *Repor
 			r.warnf("create team %q: %v", full.Name, err)
 		}
 		for _, repo := range full.Repositories {
-			if err := dst.AddTeamRepository(ctx, full.Name, repo); err != nil {
-				r.warnf("add repo %q to team %q: %v", repo, full.Name, err)
+			// Stored rows go back through the user-input write paths on
+			// the destination, which normalize strictly — collapse legacy
+			// ported rows first or they re-encode as dead slash forms.
+			canonical := scope.CanonicalizeStoredRepoRow(repo)
+			warnLegacyRowRewrite(r, "team "+full.Name+" repo", repo, canonical)
+			if err := dst.AddTeamRepository(ctx, full.Name, canonical); err != nil {
+				r.warnf("add repo %q to team %q: %v", canonical, full.Name, err)
 			}
 		}
 	}
@@ -318,6 +329,7 @@ func copyAssetScopes(ctx context.Context, dst scopeInstaller, name string, scope
 				r.warnf("asset %q: unsupported scope kind %q; skipped", name, sc.Kind)
 				continue
 			}
+			warnLegacyRowRewrite(r, "asset "+name+" scope", sc.Repo, target.Repo)
 			targets = append(targets, target)
 		}
 	}
@@ -377,14 +389,27 @@ func copyAssetScopes(ctx context.Context, dst scopeInstaller, name string, scope
 	}
 }
 
+// warnLegacyRowRewrite records when migrating a stored row collapsed
+// its legacy ported reading — a one-way rewrite ("host:2024/team/app"
+// → "host/team/app") that is correct for rows whose numeric segment
+// really was a port but repoints ones where it was a path component.
+// The copy report is the only place the original form survives.
+func warnLegacyRowRewrite(r *Report, what, original, migrated string) {
+	if migrated != scope.NormalizeRepoURL(original) {
+		r.warnf("%s %q migrated as %q (legacy port reading)", what, original, migrated)
+	}
+}
+
 func scopeToTarget(sc manifest.Scope) (vault.InstallTarget, bool) {
 	switch sc.Kind {
 	case manifest.ScopeKindOrg:
 		return vault.InstallTarget{Kind: vault.InstallKindOrg}, true
 	case manifest.ScopeKindRepo:
-		return vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: sc.Repo}, true
+		// Collapse legacy ported rows before the destination's strict
+		// write-path normalization re-encodes them as dead slash forms.
+		return vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: scope.CanonicalizeStoredRepoRow(sc.Repo)}, true
 	case manifest.ScopeKindPath:
-		return vault.InstallTarget{Kind: vault.InstallKindPath, Repo: sc.Repo, Paths: sc.Paths}, true
+		return vault.InstallTarget{Kind: vault.InstallKindPath, Repo: scope.CanonicalizeStoredRepoRow(sc.Repo), Paths: sc.Paths}, true
 	case manifest.ScopeKindTeam:
 		return vault.InstallTarget{Kind: vault.InstallKindTeam, Team: sc.Team}, true
 	case manifest.ScopeKindUser:

@@ -467,3 +467,34 @@ func TestCollections_RoundTripAndNormalization(t *testing.T) {
 		t.Error("empty collection name should be rejected")
 	}
 }
+
+func TestMarshalKeepsLegacyPortedTeamRepoLiteral(t *testing.T) {
+	// Rows written by older sx versions kept the port. Marshal runs on
+	// every manifest write, and it must not collapse the row — the
+	// colon is what match-time reconciliation (the stored-side legacy
+	// reading in scope.MatchStoredRepoURL) keys on.
+	m := &Manifest{
+		SchemaVersion: 2,
+		Teams: []Team{{
+			Name:         "platform",
+			Repositories: []string{"gitea.corp.com:3000/acme/x", "GitHub.com/Acme/Infra.git"},
+		}},
+	}
+
+	data, err := Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	parsed, err := Parse(data)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	team, err := parsed.FindTeam("platform")
+	if err != nil {
+		t.Fatalf("find team: %v", err)
+	}
+	want := []string{"gitea.corp.com:3000/acme/x", "github.com/acme/infra"}
+	if len(team.Repositories) != len(want) || team.Repositories[0] != want[0] || team.Repositories[1] != want[1] {
+		t.Fatalf("repositories = %v, want %v (legacy row literal, cleanup only)", team.Repositories, want)
+	}
+}

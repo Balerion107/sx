@@ -139,6 +139,9 @@ are added — you are not added automatically.`,
 				}
 			}
 
+			// Canonicalization happens in the vault layer
+			// (commonCreateTeam), same as `sx team repo add`, so every
+			// caller — not just this command — stores canonical rows.
 			team := mgmt.Team{
 				Name:         args[0],
 				Description:  description,
@@ -154,6 +157,17 @@ are added — you are not added automatically.`,
 				return err
 			}
 			status.Done("Created team " + team.Name)
+			// Same alias note as `team repo add`, only for backends that
+			// persist the host, and only after the write succeeded so
+			// "storing …" never describes a row that wasn't created. The
+			// target list dedupes by repo the same way the notes do.
+			if vault.PersistsRepoHost(v) {
+				noteTargets := make([]vault.InstallTarget, 0, len(repos))
+				for _, r := range repos {
+					noteTargets = append(noteTargets, vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: r})
+				}
+				warnAliasScopeTargets(noteTargets, ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			}
 			return nil
 		},
 	}
@@ -315,7 +329,9 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Associate a repository with a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
+			return runTeamMutationWithNote(cmd, args[0], func(v vault.Vault) {
+				warnAliasRepoURL(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			}, func(ctx context.Context, v vault.Vault) error {
 				return v.AddTeamRepository(ctx, args[0], args[1])
 			},
 				"Adding repo to team "+args[0],
@@ -327,14 +343,15 @@ func newTeamRepoCommand() *cobra.Command {
 		Short: "Dissociate a repository from a team",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTeamMutation(cmd, args[0], func(ctx context.Context, v vault.Vault) error {
+			return runTeamMutationWithNote(cmd, args[0], func(v vault.Vault) {
+				warnAliasRepoURLForRemoval(args[1], ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			}, func(ctx context.Context, v vault.Vault) error {
 				return v.RemoveTeamRepository(ctx, args[0], args[1])
 			},
 				"Removing repo from team "+args[0],
 				"Removed repo from team "+args[0])
 		},
 	}
-
 	cmd.AddCommand(addCmd, removeCmd)
 	return cmd
 }
@@ -344,6 +361,15 @@ func newTeamRepoCommand() *cobra.Command {
 // fresh context + status spinner. progressMsg is shown while fn runs (e.g.
 // "Adding alice to team platform") and doneMsg replaces it on success.
 func runTeamMutation(cmd *cobra.Command, team string, fn func(ctx context.Context, v vault.Vault) error, progressMsg, doneMsg string) error {
+	return runTeamMutationWithNote(cmd, team, nil, fn, progressMsg, doneMsg)
+}
+
+// runTeamMutationWithNote is runTeamMutation with an optional note
+// emitted after the vault is resolved and the admin pre-check passed —
+// so a note never precedes a permission or unknown-team failure — and
+// only for vault backends that persist repo hosts (the Sleuth backend
+// keys repositories by owner/name, making a host alias irrelevant).
+func runTeamMutationWithNote(cmd *cobra.Command, team string, note func(v vault.Vault), fn func(ctx context.Context, v vault.Vault) error, progressMsg, doneMsg string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -353,6 +379,9 @@ func runTeamMutation(cmd *cobra.Command, team string, fn func(ctx context.Contex
 	}
 	if err := requireTeamAdmin(ctx, v, team); err != nil {
 		return err
+	}
+	if note != nil && vault.PersistsRepoHost(v) {
+		note(v)
 	}
 	status := components.NewStatus(cmd.OutOrStdout())
 	status.Start(progressMsg)

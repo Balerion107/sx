@@ -53,3 +53,13 @@ func authUsername(cfg Config) string {
 	}
 	return ""
 }
+
+// PersistsRepoHost reports whether the vault stores repository rows
+// with their host. The Sleuth backend resolves repository URLs to
+// server-side entities keyed by owner/name (the host is discarded), so
+// notes about an SSH alias landing in stored data only apply to
+// file-backed vaults.
+func PersistsRepoHost(v Vault) bool {
+	_, isSleuth := v.(*SleuthVault)
+	return !isSleuth
+}

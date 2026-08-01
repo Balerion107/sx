@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
@@ -174,5 +175,35 @@ func TestResolve_TeamWithNoReposIsGlobal(t *testing.T) {
 		if a.Name == "team-no-repos" || a.Name == "team-with-repos" {
 			t.Fatalf("non-member should not receive team-scoped asset %q", a.Name)
 		}
+	}
+}
+
+func TestMergeScopesFoldsOnlyNormalizedEquality(t *testing.T) {
+	// A legacy-shaped row and a modern row may name two different
+	// repositories (":2024" could be a port kept by an old normalizer
+	// or a genuine year directory). Folding them would silently drop a
+	// scope row with the survivor depending on declaration order, so
+	// both must survive — match-time reconciliation covers the
+	// same-repo interpretation without any row loss.
+	ambiguous := []lockfile.Scope{
+		{Repo: "gitea.corp.com/team/app"},
+		{Repo: "gitea.corp.com:2024/team/app"},
+	}
+	for name, rows := range map[string][]lockfile.Scope{
+		"modern first": ambiguous,
+		"legacy first": {ambiguous[1], ambiguous[0]},
+	} {
+		if got := mergeScopes(rows); len(got) != 2 {
+			t.Errorf("%s: mergeScopes = %v, want both rows kept", name, got)
+		}
+	}
+
+	// Normalized-equal forms still fold.
+	folded := mergeScopes([]lockfile.Scope{
+		{Repo: "https://github.com/acme/x.git"},
+		{Repo: "github.com/acme/x", Paths: []string{"services/api"}},
+	})
+	if len(folded) != 1 || len(folded[0].Paths) != 0 {
+		t.Errorf("normalized-equal rows should fold to one repo-wide row, got %v", folded)
 	}
 }

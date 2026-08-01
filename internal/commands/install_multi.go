@@ -86,16 +86,19 @@ func loadActiveProfilesAndLockFiles(
 	if !reportFetchErrors(profileLocks, styledOut) {
 		// All profiles failed. A pristine "no lock file yet" outcome is
 		// the new-user case (every profile reports ErrLockFileNotFound).
-		// Anything else means the warnings just printed by
-		// reportFetchErrors are the diagnostic; bail with a non-zero
-		// status but skip re-rendering the underlying errors.
+		// Anything else is a hard failure: embed the underlying fetch
+		// errors in the returned error rather than pointing at the
+		// warnings — in hook mode the output is silent, so the error is
+		// the only diagnostic the caller sees.
+		var fetchErrs []error
 		for _, pl := range profileLocks {
-			if pl.FetchErr == nil {
+			if pl.FetchErr == nil || errors.Is(pl.FetchErr, vaultpkg.ErrLockFileNotFound) {
 				continue
 			}
-			if !errors.Is(pl.FetchErr, vaultpkg.ErrLockFileNotFound) {
-				return nil, nil, nil, nil, false, errors.New("no active profile produced a lock file (see warnings above)")
-			}
+			fetchErrs = append(fetchErrs, fmt.Errorf("profile %s: %w", pl.ProfileName, pl.FetchErr))
+		}
+		if len(fetchErrs) > 0 {
+			return nil, nil, nil, nil, false, fmt.Errorf("no active profile produced a lock file: %w", errors.Join(fetchErrs...))
 		}
 		styledOut.Info("No assets installed yet.")
 		styledOut.Muted("Add skills with 'sx add' or browse skills.sh with 'sx add --browse'.")
@@ -208,18 +211,19 @@ func mergeApplicableAssets(
 	profileLocks []profileLockFile,
 	targetClients []clients.Client,
 	matcherScope *scope.Matcher,
-) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, err error) {
+) (sortedAssets []*lockfile.Asset, assetOrigin map[string]string, conflicts []assetConflict, skips *scopeSkips, err error) {
 	assetOrigin = make(map[string]string)
 	conflictByName := make(map[string]*assetConflict)
+	skips = &scopeSkips{}
 
 	for _, pl := range profileLocks {
 		if pl.LockFile == nil {
 			continue
 		}
-		applicable := filterAssetsByScope(pl.LockFile, targetClients, matcherScope)
+		applicable := filterAssetsByScope(pl.LockFile, targetClients, matcherScope, skips)
 		sorted, resolveErr := resolveAssetDependencies(pl.LockFile, applicable)
 		if resolveErr != nil {
-			return nil, nil, nil, fmt.Errorf("dependency resolution for profile %s: %w", pl.ProfileName, resolveErr)
+			return nil, nil, nil, skips, fmt.Errorf("dependency resolution for profile %s: %w", pl.ProfileName, resolveErr)
 		}
 		for _, asset := range sorted {
 			if existing, taken := assetOrigin[asset.Name]; taken {
@@ -246,7 +250,16 @@ func mergeApplicableAssets(
 			conflicts = append(conflicts, *conflictByName[n])
 		}
 	}
-	return sortedAssets, assetOrigin, conflicts, nil
+
+	// An asset can be scope-skipped and still end up resolved: dependency
+	// resolution pulls missing dependencies from the full lock file
+	// regardless of scope, and another profile can resolve a name this
+	// profile skipped. Anything that resolved installs, so it must not
+	// also be reported as skipped.
+	for name := range assetOrigin {
+		skips.unrecord(name)
+	}
+	return sortedAssets, assetOrigin, conflicts, skips, nil
 }
 
 // profileMetadata pairs identity + audit-tag context for the profiles

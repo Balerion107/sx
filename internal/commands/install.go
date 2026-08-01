@@ -182,18 +182,19 @@ func findAssetOwningProfile(ctx context.Context, assetName string) string {
 // implicit by absence). Single-profile output is left unchanged so
 // existing scripts that parse the `pip freeze`-style format keep
 // working.
-func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool) {
+func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvironment, assetOrigin map[string]string, multiActive bool, skips *scopeSkips) {
 	if len(assets) == 0 {
 		fmt.Fprintln(w, "# No assets resolved for this context.")
 		fmt.Fprintln(w, "# Checked clients:", strings.Join(getTargetClientIDs(env.Clients), ", "))
+		printDryRunCurrentScope(w, env.CurrentScope)
+		printDryRunScopeSkips(w, skips)
 		return
 	}
 
 	fmt.Fprintln(w, "# sx install --dry-run")
 	fmt.Fprintln(w, "# Resolved for:", strings.Join(getTargetClientIDs(env.Clients), ", "))
-	if s := describeCurrentScope(env.CurrentScope); s != "" {
-		fmt.Fprintln(w, "# Current scope:", s)
-	}
+	printDryRunCurrentScope(w, env.CurrentScope)
+	printDryRunScopeSkips(w, skips)
 	fmt.Fprintln(w)
 
 	for _, a := range assets {
@@ -203,6 +204,55 @@ func printDryRunPreview(w io.Writer, assets []*lockfile.Asset, env *installEnvir
 			fmt.Fprintf(w, "%s==%s  # %s; scope=%s; profile=%s\n", a.Name, a.Version, a.Type, scopeDesc, origin)
 		} else {
 			fmt.Fprintf(w, "%s==%s  # %s; scope=%s\n", a.Name, a.Version, a.Type, scopeDesc)
+		}
+	}
+}
+
+// reportScopeSkips warns about near-miss scope exclusions — skipped
+// assets scoped to a repo with the same owner/repo path as the
+// current remote but a different host. Ordinary skips (assets scoped
+// to other repos, or repo-scoped assets while outside any repo) are
+// expected on every install and stay quiet here; --dry-run reports
+// the full count. Hook mode is covered by styledOut's silent flag,
+// which Warning now honors.
+func reportScopeSkips(skips *scopeSkips, styledOut *ui.Output) {
+	if n := skips.NearMiss(); n > 0 {
+		styledOut.Warning(fmt.Sprintf(
+			"%d skipped asset(s) are scoped to a repo with this repo's owner/repo path but a different host; run 'sx install --dry-run' for details", n))
+	}
+}
+
+// printDryRunCurrentScope prints the caller's context, appending the
+// normalized repo form matching actually compares — the fact that
+// distinguishes "my SSH alias isn't resolving" from "this asset is
+// scoped to another repo" when read next to a near-miss detail line.
+func printDryRunCurrentScope(w io.Writer, current *scope.Scope) {
+	s := describeCurrentScope(current)
+	if s == "" {
+		return
+	}
+	if normalized := scope.NormalizeRepoURL(current.RepoURL); current.RepoURL != "" && normalized != current.RepoURL {
+		s += " (" + normalized + ")"
+	}
+	fmt.Fprintln(w, "# Current scope:", s)
+}
+
+// printDryRunScopeSkips notes assets excluded because their scope did
+// not match the current context, listing each near-miss with its
+// stored scope so a clone whose remote fails to match (wrong URL
+// form, different host) is diagnosable from the preview alone.
+func printDryRunScopeSkips(w io.Writer, skips *scopeSkips) {
+	if n := skips.Skipped(); n > 0 {
+		fmt.Fprintf(w, "# %d asset(s) skipped: scope does not match this context\n", n)
+	}
+	if n := skips.NearMiss(); n > 0 {
+		verb := "name"
+		if n == 1 {
+			verb = "names"
+		}
+		fmt.Fprintf(w, "# %d of them %s the same owner/repo path as this repo but a different host:\n", n, verb)
+		for _, detail := range skips.NearMissDetails() {
+			fmt.Fprintf(w, "#   %s\n", detail)
 		}
 	}
 }
@@ -328,7 +378,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// for "first-active" is whichever profile appears first in
 	// profileLocks (already ordered per config.GetActiveProfileNames).
 	matcherScope := scope.NewMatcher(env.CurrentScope)
-	sortedAssets, assetOrigin, conflicts, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
+	sortedAssets, assetOrigin, conflicts, skips, err := mergeApplicableAssets(profileLocks, env.Clients, matcherScope)
 	if err != nil {
 		return err
 	}
@@ -353,9 +403,11 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// --dry-run: print the resolved asset list and exit before we touch
 	// the tracker, download anything, or write to client directories.
 	if dryRun {
-		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1)
+		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, skips)
 		return nil
 	}
+
+	reportScopeSkips(skips, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)

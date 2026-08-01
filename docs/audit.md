@@ -36,7 +36,7 @@ conditions hold. `--since` accepts `Nd` (days) or `all`.
 | `team.admin_set` | `team` | team name | `member` |
 | `team.admin_unset` | `team` | team name | `member` |
 | `team.repo_added` | `team` | team name | `repository` |
-| `team.repo_removed` | `team` | team name | `repository` |
+| `team.repo_removed` | `team` | team name | `repositories` (list — one removal input can match several stored rows) |
 | `bot.created` | `bot` | bot name | `description`, `teams` |
 | `bot.updated` | `bot` | bot name | _(none — replaces whole bot body)_ |
 | `bot.deleted` | `bot` | bot name | `cleared_assets` (asset names whose `kind = "bot"` scopes were cascaded) |

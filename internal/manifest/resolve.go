@@ -277,8 +277,18 @@ func resolveScopes(in []Scope, m *Manifest, actorEmail string) (_ []lockfile.Sco
 	return mergeScopes(accumulated), false
 }
 
-// mergeScopes dedupes on normalized repo URL and collapses path-restricted
-// entries into a bare-repo entry when both are present for the same repo.
+// mergeScopes dedupes on normalized repo URL and collapses
+// path-restricted entries into a bare-repo entry when both are present
+// for the same repo. Rows fold ONLY on normalized equality: the legacy
+// ported reading (scope.MatchStoredRepoURL) is deliberately excluded —
+// it is wider than the URLs justify, and using it here would silently
+// drop a scope row when a legacy-shaped row and a modern row name what
+// may be two different repositories ("gitea.corp.com:2024/team/app"
+// vs "gitea.corp.com/team/app"), with the survivor depending on
+// declaration order. A legacy row and its modern form therefore stay
+// two lock rows; match-time reconciliation still installs to the right
+// clones for both, at the cosmetic cost of the asset appearing under
+// two scope headings in `sx config`.
 func mergeScopes(in []lockfile.Scope) []lockfile.Scope {
 	type key struct{ repo string }
 	type agg struct {

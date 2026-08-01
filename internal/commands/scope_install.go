@@ -42,7 +42,7 @@ func runInstallSetTarget(cmd *cobra.Command, assetName string, flags scopeFlags,
 	// path; this command only supplies the flags and the asset name.
 	out := newOutputHelper(cmd)
 	current, installed := resolveCurrentTargets(ctx, v, assetName)
-	result, err := resolveScopeFromFlags(out, assetName, current, installed, flags, autoYes)
+	result, err := resolveScopeFromFlags(out, v, assetName, current, installed, flags, autoYes)
 	if err != nil {
 		return err
 	}

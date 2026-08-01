@@ -22,7 +22,46 @@ clone of the named repo. Outside that repo, the asset is invisible.
 
 Repo URLs are normalized before comparison — `git@github.com:acme/x`,
 `https://github.com/acme/x`, and `https://github.com/acme/x.git` all
-resolve to the same scope row.
+resolve to the same scope row. This applies to any host (including
+GitHub Enterprise and self-hosted git servers), and userinfo, ports,
+and a trailing `.git` are ignored. Ignoring ports means sx assumes
+one git server per hostname — two servers on different ports of
+the same host resolve to the same scope. IPv6 literal hosts work in
+both `ssh://git@[2001:db8::1]/x` and `[2001:db8::1]:x` forms. Local
+and `file://` remotes are identified by filesystem path alone
+(case-insensitively), so a scope row for a local clone matches any
+machine where that path exists.
+
+SSH host aliases from `~/.ssh/config` are resolved too: with
+`Host workgit` / `HostName github.com` configured, a clone whose
+remote is `git@workgit:acme/x.git` matches a scope stored as
+`https://github.com/acme/x`. Alias resolution reads `~/.ssh/config`
+only — `Include` directives, `Match` blocks, and wildcard `Host`
+patterns are ignored — and depends on each machine's local config,
+so store vault scopes with real hostnames rather than aliases.
+
+### Legacy scope rows
+
+Scope rows written by older sx versions could keep the port
+(`gitea.corp.com:3000/acme/x`). Such a stored row is matched under
+both readings — with and without the port-like segment — rather
+than rewritten, so a genuine numeric path segment is never dropped
+from stored data. The details, none of which need action for
+ordinary GitHub/GitLab-style `owner/repo` URLs:
+
+- The portless reading applies only to the stored side of a
+  comparison; a live remote's numeric segment is never
+  reinterpreted.
+- It requires at least `owner/repo` after the port-like segment. A
+  one-segment legacy row like `ghe.corp:2222/tools` keeps its
+  literal reading only and should be re-added with the current URL
+  form.
+- The flip side: a stored row whose numeric segment is a genuine
+  path component (`gitea.corp.com:2024/team/app`) also matches
+  clones of `gitea.corp.com/team/app`. If that distinction matters,
+  store the row with an explicit scheme and slash form
+  (`https://gitea.corp.com/2024/team/app`) so no scp reading
+  applies.
 
 > **Vault vs project:** the repo URL in `--repo` is your *project's*
 > git remote — the codebase where you want the asset installed — not
@@ -89,9 +128,13 @@ When a caller runs `sx install` inside a working tree, sx reads the
 git remote, normalizes the URL, and matches it against every asset's
 scope rows:
 
-* `kind = "repo"` matches when the normalized URLs are equal.
-* `kind = "path"` matches when the URLs are equal **and** the caller's
-  current working directory is inside one of the listed paths.
+* `kind = "repo"` matches when the URLs name the same repository —
+  see [Repo scope](#repo-scope) for what that means: normalization
+  across transports, SSH alias resolution, and legacy-row readings
+  all apply.
+* `kind = "path"` matches when the URLs name the same repository
+  (same rules) **and** the caller's current working directory is
+  inside one of the listed paths.
 
 Outside any matching repo, the asset is filtered out — it doesn't
 appear in the resolved lock file and isn't written to any client
