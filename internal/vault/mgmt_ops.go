@@ -168,15 +168,21 @@ func commonCreateTeam(vaultRoot string, actor mgmt.Actor, team mgmt.Team) error 
 			return nil, fmt.Errorf("%w: %s", manifest.ErrTeamExists, team.Name)
 		}
 		mt := mgmtTeamToManifest(team)
-		// Canonical on write, matching commonAddTeamRepository: the
-		// manifest layer's normalizeRepos is cleanup-only by design
+		// Canonical on write and deduped, matching commonAddTeamRepository:
+		// the manifest layer's normalizeRepos is cleanup-only by design
 		// (legacy rows must stay literal), so every write path — not
-		// just the CLI command — canonicalizes fresh input here.
+		// just the CLI command — canonicalizes fresh input here, and two
+		// spellings of one repo collapse to a single row the same way a
+		// re-add through `team repo add` would be refused.
 		canonicalRepos := make([]string, 0, len(mt.Repositories))
 		for _, r := range mt.Repositories {
-			if n := scope.NormalizeRepoURL(r); n != "" {
-				canonicalRepos = append(canonicalRepos, n)
+			n := scope.NormalizeRepoURL(r)
+			if n == "" || slices.ContainsFunc(canonicalRepos, func(existing string) bool {
+				return scope.StoredRepoRowMatches(existing, n)
+			}) {
+				continue
 			}
+			canonicalRepos = append(canonicalRepos, n)
 		}
 		mt.Repositories = canonicalRepos
 		if len(mt.Admins) == 0 {

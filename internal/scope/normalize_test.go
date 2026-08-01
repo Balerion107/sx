@@ -47,15 +47,23 @@ func TestNormalizeRepoURL(t *testing.T) {
 		{"whitespace", "  https://github.com/acme/x.git  ", "github.com/acme/x"},
 		{"absolute local path", "/srv/git/x", "srv/git/x"},
 		{"file url", "file:///srv/git/x.git", "srv/git/x"},
-		{"scp ipv6", "[2001:db8::1]:acme/x.git", "2001:db8::1/acme/x"},
-		{"scp ipv6 with user", "git@[2001:db8::1]:acme/x.git", "2001:db8::1/acme/x"},
+		{"scp ipv6", "[2001:db8::1]:acme/x.git", "[2001:db8::1]/acme/x"},
+		{"scp ipv6 with user", "git@[2001:db8::1]:acme/x.git", "[2001:db8::1]/acme/x"},
 		{"windows drive path", "c:/repos/x", "c:/repos/x"},
 		{"not a url", "not a url", "not a url"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NormalizeRepoURL(tt.in); got != tt.want {
+			got := NormalizeRepoURL(tt.in)
+			if got != tt.want {
 				t.Errorf("NormalizeRepoURL(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+			// Normalization must be a fixed point: its output is what
+			// the vault write paths persist, so a form that re-splits
+			// on the next read (as unbracketed IPv6 once did) breaks
+			// the write→read round trip.
+			if again := NormalizeRepoURL(got); again != got {
+				t.Errorf("not idempotent: NormalizeRepoURL(%q) = %q", got, again)
 			}
 		})
 	}

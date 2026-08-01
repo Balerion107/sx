@@ -159,12 +159,14 @@ are added — you are not added automatically.`,
 			status.Done("Created team " + team.Name)
 			// Same alias note as `team repo add`, only for backends that
 			// persist the host, and only after the write succeeded so
-			// "storing …" never describes a row that wasn't created.
+			// "storing …" never describes a row that wasn't created. The
+			// target list dedupes by repo the same way the notes do.
 			if vault.PersistsRepoHost(v) {
-				noteOut := ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
+				noteTargets := make([]vault.InstallTarget, 0, len(repos))
 				for _, r := range repos {
-					warnAliasRepoURL(r, noteOut)
+					noteTargets = append(noteTargets, vault.InstallTarget{Kind: vault.InstallKindRepo, Repo: r})
 				}
+				warnAliasScopeTargets(noteTargets, ui.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			}
 			return nil
 		},

@@ -26,7 +26,11 @@ resolve to the same scope row. This applies to any host (including
 GitHub Enterprise and self-hosted git servers), and userinfo, ports,
 and a trailing `.git` are ignored. Ignoring ports means sx assumes
 one git server per hostname — two servers on different ports of
-the same host resolve to the same scope.
+the same host resolve to the same scope. IPv6 literal hosts work in
+both `ssh://git@[2001:db8::1]/x` and `[2001:db8::1]:x` forms. Local
+and `file://` remotes are identified by filesystem path alone
+(case-insensitively), so a scope row for a local clone matches any
+machine where that path exists.
 
 SSH host aliases from `~/.ssh/config` are resolved too: with
 `Host workgit` / `HostName github.com` configured, a clone whose

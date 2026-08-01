@@ -1,9 +1,11 @@
 package vault
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/manifest"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 // TestInstallScopeMatches_LegacyReadingWidth pins the deliberate width
@@ -34,5 +36,45 @@ func TestInstallScopeMatches_LegacyReadingWidth(t *testing.T) {
 	// Different repos stay different.
 	if installScopeMatches(repoRow("github.com/acme/x"), repoRow("github.com/acme/y")) {
 		t.Error("distinct repos must not match")
+	}
+}
+
+// TestCreateTeam_CanonicalizesAndDedupesRepos pins the create-path
+// invariant: repo rows are stored canonical (same form `team repo add`
+// writes) and two spellings of one repo collapse to a single row.
+func TestCreateTeam_CanonicalizesAndDedupesRepos(t *testing.T) {
+	mgmt.ResetActorCache()
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "alice@example.com")
+	runGit(t, dir, "config", "user.name", "Alice Admin")
+	if err := manifest.Save(dir, &manifest.Manifest{SchemaVersion: manifest.CurrentSchemaVersion}); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	v, err := NewPathVault("file://" + dir)
+	if err != nil {
+		t.Fatalf("NewPathVault: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := v.CreateTeam(ctx, mgmt.Team{
+		Name:   "platform",
+		Admins: []string{"alice@example.com"},
+		Repositories: []string{
+			"git@github.com:acme/x.git",
+			"https://github.com/acme/x.git",
+			"https://github.com/acme/y",
+		},
+	}); err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+
+	team, err := v.GetTeam(ctx, "platform")
+	if err != nil {
+		t.Fatalf("GetTeam: %v", err)
+	}
+	want := []string{"github.com/acme/x", "github.com/acme/y"}
+	if len(team.Repositories) != len(want) || team.Repositories[0] != want[0] || team.Repositories[1] != want[1] {
+		t.Fatalf("repositories = %v, want %v (canonical, deduped)", team.Repositories, want)
 	}
 }

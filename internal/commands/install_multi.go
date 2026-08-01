@@ -86,16 +86,19 @@ func loadActiveProfilesAndLockFiles(
 	if !reportFetchErrors(profileLocks, styledOut) {
 		// All profiles failed. A pristine "no lock file yet" outcome is
 		// the new-user case (every profile reports ErrLockFileNotFound).
-		// Anything else means the warnings just printed by
-		// reportFetchErrors are the diagnostic; bail with a non-zero
-		// status but skip re-rendering the underlying errors.
+		// Anything else is a hard failure: embed the underlying fetch
+		// errors in the returned error rather than pointing at the
+		// warnings — in hook mode the output is silent, so the error is
+		// the only diagnostic the caller sees.
+		var fetchErrs []error
 		for _, pl := range profileLocks {
-			if pl.FetchErr == nil {
+			if pl.FetchErr == nil || errors.Is(pl.FetchErr, vaultpkg.ErrLockFileNotFound) {
 				continue
 			}
-			if !errors.Is(pl.FetchErr, vaultpkg.ErrLockFileNotFound) {
-				return nil, nil, nil, nil, false, errors.New("no active profile produced a lock file (see warnings above)")
-			}
+			fetchErrs = append(fetchErrs, fmt.Errorf("profile %s: %w", pl.ProfileName, pl.FetchErr))
+		}
+		if len(fetchErrs) > 0 {
+			return nil, nil, nil, nil, false, fmt.Errorf("no active profile produced a lock file: %w", errors.Join(fetchErrs...))
 		}
 		styledOut.Info("No assets installed yet.")
 		styledOut.Muted("Add skills with 'sx add' or browse skills.sh with 'sx add --browse'.")

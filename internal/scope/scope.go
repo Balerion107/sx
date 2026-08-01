@@ -155,7 +155,7 @@ func NormalizeRepoURL(repoURL string) string {
 	cleaned := CleanRepoURL(repoURL)
 
 	if host, path, ok := splitSCPLike(cleaned); ok {
-		return host + "/" + strings.TrimLeft(path, "/")
+		return bracketIPv6(host) + "/" + strings.TrimLeft(path, "/")
 	}
 
 	u, err := url.Parse(cleaned)
@@ -177,7 +177,22 @@ func NormalizeRepoURL(repoURL string) string {
 		}
 		return cleaned
 	}
-	return strings.TrimSuffix(u.Hostname()+u.Path, "/")
+	return strings.TrimSuffix(bracketIPv6(u.Hostname())+u.Path, "/")
+}
+
+// bracketIPv6 re-brackets a host that contains a colon (an IPv6
+// literal, unbracketed by both splitSCPLike and url.URL.Hostname).
+// Without the brackets the normalized output would itself be
+// scp-shaped ("2001:db8::1/acme/x") and re-split into a different
+// host on the next read — normalization must be a fixed point, since
+// its output is exactly what the vault write paths persist. The
+// bracketed form is: splitSCPLike rejects it (no colon after "]") and
+// url.Parse errors on it, so it re-normalizes to itself.
+func bracketIPv6(host string) string {
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 // LooksLikeSameRepo reports whether the caller's remote and a stored
@@ -291,7 +306,7 @@ func AliasResolvedForm(repoURL string) string {
 	if !ok || resolved == "" || resolved == host {
 		return ""
 	}
-	return resolved + "/" + strings.TrimLeft(path, "/")
+	return bracketIPv6(resolved) + "/" + strings.TrimLeft(path, "/")
 }
 
 // legacyPortedForm returns the port-dropped reading of a userless

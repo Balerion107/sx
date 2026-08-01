@@ -50,7 +50,8 @@ func (o *Output) Wrap(text string) string {
 	return wordwrap.String(text, o.width)
 }
 
-// SetSilent enables or disables silent mode (suppresses stdout).
+// SetSilent enables or disables silent mode, suppressing every output
+// method on both streams — including stderr-bound warnings.
 func (o *Output) SetSilent(silent bool) {
 	o.silent = silent
 }
