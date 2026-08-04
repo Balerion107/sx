@@ -216,23 +216,35 @@ func TestSetCacheHintsWritesTheHints(t *testing.T) {
 	}
 }
 
-// TestSetCacheHintsGivesUpWithoutPanicking covers every guard. Each of these
-// shapes would panic in reflect if the corresponding check were removed, so
-// deleting a guard fails this test rather than passing silently.
+// TestSetCacheHintsGivesUpWithoutPanicking covers every guard.
+//
+// Asserting the *specific* reason, not merely "some reason", is what keeps the
+// per-step checks load-bearing. The deferred recover would otherwise catch all
+// of these itself, so deleting a guard would still produce a non-empty reason
+// and this test would pass — the guards would quietly become decoration.
+// Pinning the reason means a deleted guard surfaces as "reflect panic: …"
+// instead of its specific diagnostic, and fails here.
 func TestSetCacheHintsGivesUpWithoutPanicking(t *testing.T) {
 	cases := []struct {
-		name   string
-		target any
+		name       string
+		target     any
+		wantReason string
 	}{
-		{"nil", nil},
-		{"non-pointer", goodShape{}},
-		{"typed nil pointer", (*goodShape)(nil)},
-		{"pointer to non-struct", new(int)},
-		{"no Cacheable field", &noCacheableField{}},
-		{"Cacheable is a pointer", &pointerCacheable{}},
-		{"TTLMs is not an int", &wrongTTLKind{}},
-		{"Cacheable promoted through a nil embedded pointer", &nilEmbeddedPointer{}},
-		{"CacheScope is not a string", &wrongScopeKind{}},
+		{"nil", nil, "result is not a non-nil pointer"},
+		{"non-pointer", goodShape{}, "result is not a non-nil pointer"},
+		{"typed nil pointer", (*goodShape)(nil), "result is not a non-nil pointer"},
+		{"pointer to non-struct", new(int), "result does not point at a struct"},
+		{"no Cacheable field", &noCacheableField{}, "no settable Cacheable field"},
+		{"Cacheable is a pointer", &pointerCacheable{}, "Cacheable field is not a struct"},
+		{"TTLMs is not an int", &wrongTTLKind{}, "unexpected CacheScope/TTLMs shape"},
+		{"CacheScope is not a string", &wrongScopeKind{}, "unexpected CacheScope/TTLMs shape"},
+		// The one case the recover is genuinely for: no per-step check can see
+		// it coming, because FieldByName only panics once it walks the index.
+		{
+			"Cacheable promoted through a nil embedded pointer",
+			&nilEmbeddedPointer{},
+			"reflect panic: reflect: indirection through nil pointer to embedded struct",
+		},
 	}
 
 	for _, tc := range cases {
@@ -242,8 +254,8 @@ func TestSetCacheHintsGivesUpWithoutPanicking(t *testing.T) {
 					t.Fatalf("panicked: %v", r)
 				}
 			}()
-			if reason := setCacheHints(tc.target, 60000); reason == "" {
-				t.Errorf("wrote hints to an unexpected shape; want a give-up reason")
+			if reason := setCacheHints(tc.target, 60000); reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
 			}
 		})
 	}
