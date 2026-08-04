@@ -193,7 +193,28 @@ event: complete
 message: Query completed
 ```
 
-These notifications appear as log messages in the AI client, providing visibility into query progress.
+These are delivered as MCP `notifications/progress` on the response stream of the
+originating request.
+
+**Progress is opt-in.** The client asks for it by including a `progressToken` in the
+request's `_meta`; without one there is nothing to correlate a notification to, so sx
+sends none and logs locally instead. This replaced the previous mechanism, which sent
+`notifications/message` (log notifications) — MCP `2026-07-28` deprecated the Logging
+feature (SEP-2577) and forbids emitting log notifications for a request that did not
+ask for them.
+
+Note that progress is not a guaranteed keepalive: events fire on tool-call boundaries,
+so a query that spends its time inside a single API call emits nothing even with a
+token present.
+
+## Caching hints
+
+Per MCP `2026-07-28` (SEP-2549), list and read results carry caching hints:
+
+- `ttlMs` — how long the client may treat the result as fresh (60s).
+- `cacheScope` — always `private`. An sx server serves exactly one person's vault, so
+  its results must never be cached across authorization contexts. The Go SDK defaults
+  this to `public`; sx overrides it for every cacheable result.
 
 ## Error Handling
 

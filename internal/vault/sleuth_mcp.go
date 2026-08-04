@@ -80,9 +80,7 @@ func (s *SleuthVault) handleQueryTool(ctx context.Context, req *mcp.CallToolRequ
 
 	log.Debug("calling sleuth query API with SSE streaming", "repoUrl", gitCtx.RepoURL, "branch", branch, "commit", commit)
 
-	// Create event callback that streams progress back to the client. The
-	// traffic doubles as a keepalive, which is what stops a long query from
-	// tripping the client's idle timeout.
+	// Create event callback that streams progress back to the client.
 	//
 	// This used to send `notifications/message` via Session.Log. MCP
 	// 2026-07-28 deprecated the Logging feature (SEP-2577) and — more
@@ -93,6 +91,17 @@ func (s *SleuthVault) handleQueryTool(ctx context.Context, req *mcp.CallToolRequ
 	// Progress is opt-in: the client requests it with a progressToken in the
 	// request's `_meta`. Without one there's nothing to correlate a
 	// notification to, so we log locally and send nothing over the wire.
+	//
+	// Note this is *not* a guaranteed keepalive, and the code it replaced
+	// wasn't either — Session.Log returned early unless the client had called
+	// logging/setLevel. Two gaps remain: a client that sends no progressToken
+	// gets no traffic at all, and QueryIntegrationStream only invokes onEvent
+	// on a ToolCallEvent, so a query that spends its time inside one API call
+	// emits nothing even with a token. There is no protocol-level fix
+	// available here: `ping` was removed in 2026-07-28 alongside the rest, and
+	// the SDK rejects it outright for modern peers (server.go:1880). If idle
+	// timeouts become a real problem, the fix belongs in the streaming API —
+	// emitting periodic heartbeat events — not in this callback.
 	progressToken := req.Params.GetProgressToken()
 	var progressSeq float64
 	onEvent := func(eventType, content string) {

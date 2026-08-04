@@ -39,10 +39,9 @@ func buildCloudServeMCPServerFromConfig(cfg *config.Config) (*mcp.Server, error)
 		Name:    "skills",
 		Version: "1.0.0",
 	}
-	server := mcp.NewServer(impl, nil)
-	// Relay results are per-user by construction; don't let them be cached
-	// across authorization contexts. See mcpserver.PrivateCacheScopeMiddleware.
-	server.AddReceivingMiddleware(mcpserver.PrivateCacheScopeMiddleware(mcpserver.DefaultCacheTTL))
+	// Shared constructor, so the relay can't drift from `sx mcp` on the
+	// cacheScope middleware — relay results are per-user by construction.
+	server := mcpserver.NewMCPServer(impl)
 
 	vault, err := vaultpkg.NewFromConfig(cfg)
 	if err != nil {

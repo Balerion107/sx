@@ -114,3 +114,38 @@ func TestPrivateCacheScopeMiddlewarePropagatesErrors(t *testing.T) {
 		t.Errorf("err = %v, want %v", err, wantErr)
 	}
 }
+
+// TestNewMCPServerInstallsCacheScopeMiddleware covers the production wiring
+// rather than a hand-built server: deleting the AddReceivingMiddleware call in
+// NewMCPServer must fail something. Both `sx mcp` and `sx cloud serve` go
+// through this constructor, so this one test covers both.
+func TestNewMCPServerInstallsCacheScopeMiddleware(t *testing.T) {
+	ctx := context.Background()
+	server := NewMCPServer(&mcp.Implementation{Name: "test", Version: "0.1"})
+	mcp.AddTool(server, &mcp.Tool{Name: "probe", Description: "probe"},
+		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{}, nil, nil
+		})
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	go func() { _ = server.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+
+	if res.CacheScope != "private" {
+		t.Errorf("CacheScope = %q, want %q — is the middleware still wired into NewMCPServer?", res.CacheScope, "private")
+	}
+	if res.TTLMs != int(DefaultCacheTTL/time.Millisecond) {
+		t.Errorf("TTLMs = %d, want %d", res.TTLMs, int(DefaultCacheTTL/time.Millisecond))
+	}
+}

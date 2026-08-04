@@ -796,8 +796,10 @@ func (s *SleuthVault) resolveAssetNode(
 }
 
 // QueryIntegrationStream queries integrated services using SSE streaming.
-// The onEvent callback is called for each event received, which can be used
-// to send MCP log notifications to keep the connection alive.
+// The onEvent callback is called for each event received; the MCP layer
+// forwards those as `notifications/progress` when the client supplied a
+// progressToken. Note that events fire on tool-call boundaries, so a query
+// spending its time inside one API call produces no callbacks.
 func (s *SleuthVault) QueryIntegrationStream(
 	ctx context.Context,
 	query, integration string,
