@@ -76,11 +76,10 @@ func roundTripEnvelope(t *testing.T, method string, params map[string]any) map[s
 	}))
 	defer srv.Close()
 
-	// A server carrying the same middleware `sx cloud serve` installs, so the
-	// cacheScope behaviour under test is the real one.
+	// Built through the same constructor `sx cloud serve` uses, so this
+	// exercises the real wiring rather than a hand-rolled equivalent.
 	factory := func() (*mcp.Server, error) {
-		s := mcp.NewServer(&mcp.Implementation{Name: "test-sx", Version: "0.1"}, nil)
-		s.AddReceivingMiddleware(mcpserver.PrivateCacheScopeMiddleware(mcpserver.DefaultCacheTTL))
+		s := mcpserver.NewMCPServer(&mcp.Implementation{Name: "test-sx", Version: "0.1"})
 		mcp.AddTool(s, &mcp.Tool{Name: "probe", Description: "probe"},
 			func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
 				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil, nil

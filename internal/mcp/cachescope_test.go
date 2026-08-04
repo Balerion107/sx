@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -147,5 +148,49 @@ func TestNewMCPServerInstallsCacheScopeMiddleware(t *testing.T) {
 	}
 	if res.TTLMs != int(DefaultCacheTTL/time.Millisecond) {
 		t.Errorf("TTLMs = %d, want %d", res.TTLMs, int(DefaultCacheTTL/time.Millisecond))
+	}
+}
+
+// TestApplyPrivateCacheHintsSurvivesUnexpectedShape guards the reflective path
+// against the scenario it exists for: an SDK whose Cacheable fields change type
+// or disappear. Reflection's SetString/SetInt panic on a kind mismatch, so a
+// naive implementation would take down the request rather than degrade.
+func TestApplyPrivateCacheHintsSurvivesUnexpectedShape(t *testing.T) {
+	// A result whose Cacheable-shaped fields have the wrong kinds. Not an
+	// mcp.CacheableResult, so it short-circuits before reflection — the point
+	// is that neither branch panics.
+	cases := []struct {
+		name string
+		res  mcp.Result
+	}{
+		{"nil result", nil},
+		{"non-cacheable result", &mcp.CallToolResult{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panicked on %s: %v", tc.name, r)
+				}
+			}()
+			applyPrivateCacheHints(tc.res, 60000)
+		})
+	}
+}
+
+func TestIsIntKindAcceptsOnlySignedInts(t *testing.T) {
+	// TTLMs is an int today; if the SDK widens or narrows it we still want to
+	// write it, but a change to string or float must fall through to the
+	// warning rather than panic.
+	for _, k := range []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64} {
+		if !isIntKind(k) {
+			t.Errorf("isIntKind(%v) = false, want true", k)
+		}
+	}
+	for _, k := range []reflect.Kind{reflect.String, reflect.Float64, reflect.Bool, reflect.Uint} {
+		if isIntKind(k) {
+			t.Errorf("isIntKind(%v) = true, want false", k)
+		}
 	}
 }

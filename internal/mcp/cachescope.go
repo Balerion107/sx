@@ -88,15 +88,25 @@ func applyPrivateCacheHints(res mcp.Result, ttlMs int) {
 		return
 	}
 
+	// Kinds are checked, not just settability: SetString and SetInt panic on a
+	// mismatch, and an SDK field-type change is precisely the scenario this
+	// reflective path exists to survive. Panicking here would take down the
+	// request instead of degrading to a logged warning.
 	scope := cacheable.FieldByName("CacheScope")
 	ttl := cacheable.FieldByName("TTLMs")
-	if !scope.CanSet() || !ttl.CanSet() {
+	if !scope.CanSet() || scope.Kind() != reflect.String ||
+		!ttl.CanSet() || !isIntKind(ttl.Kind()) {
 		logger.Get().Error(
-			"unexpected mcp.Cacheable shape; cache hints not applied",
+			"unexpected mcp.Cacheable shape; cache hints not applied, result may carry the SDK's public default",
 			"type", reflect.TypeOf(res).String(),
 		)
 		return
 	}
 	scope.SetString(cacheScopePrivate)
 	ttl.SetInt(int64(ttlMs))
+}
+
+func isIntKind(k reflect.Kind) bool {
+	return k == reflect.Int || k == reflect.Int8 || k == reflect.Int16 ||
+		k == reflect.Int32 || k == reflect.Int64
 }
