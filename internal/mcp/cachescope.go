@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -32,6 +33,20 @@ const DefaultCacheTTL = 60 * time.Second
 // cacheableFieldName is the embedded struct the SDK uses to carry caching
 // hints. Every cacheable result type embeds it by value.
 const cacheableFieldName = "Cacheable"
+
+// Compile-time pin on the fields setCacheHints writes through. The reflection
+// below exists for the *dynamic* half of the problem — which result types are
+// cacheable — but the shape of mcp.Cacheable is knowable right here, and a
+// rename, removal, or type change should fail `go build` rather than degrade
+// into a runtime log line. That matters because the runtime signal is weak:
+// it lands in a 1MB rotating debug file alongside every Debug line in the
+// process, so the practical outcome of an unnoticed SDK bump would be
+// `cacheScope: "public"` on authenticated per-user results with nothing
+// visible to an operator or to CI.
+var (
+	_ string = mcp.Cacheable{}.CacheScope
+	_ int    = mcp.Cacheable{}.TTLMs
+)
 
 // PrivateCacheScopeMiddleware marks every cacheable result private and gives
 // it a TTL, overriding the SDK's "public" default.
@@ -92,11 +107,20 @@ func applyPrivateCacheHints(res mcp.Result, ttlMs int) {
 // seam every guard below would be untestable — and an untestable guard is one
 // that can be deleted without anything failing.
 //
-// Every reflection step is checked before it is taken: FieldByName panics on a
-// non-struct and SetString/SetInt panic on a kind mismatch, which are precisely
-// the SDK shape changes this path exists to survive. A panic here would take
-// down the request instead of degrading to a logged warning.
-func setCacheHints(target any, ttlMs int) string {
+// The per-step checks below are fast, specific diagnostics, but they are an
+// enumeration and enumerations of "how could reflect panic" don't close.
+// FieldByName alone has a second mode the Kind checks miss — a field promoted
+// through a nil embedded pointer panics via FieldByIndex — and the next SDK
+// shape could introduce a third. The deferred recover is the part that is
+// actually total: any reflect panic, known or not, becomes a logged give-up
+// instead of a dead request.
+func setCacheHints(target any, ttlMs int) (reason string) {
+	defer func() {
+		if r := recover(); r != nil {
+			reason = fmt.Sprintf("reflect panic: %v", r)
+		}
+	}()
+
 	value := reflect.ValueOf(target)
 	if value.Kind() != reflect.Pointer || value.IsNil() {
 		return "result is not a non-nil pointer"

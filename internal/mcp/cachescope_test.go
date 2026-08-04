@@ -55,8 +55,11 @@ func TestPrivateCacheScopeMiddlewareOverridesSDKPublicDefault(t *testing.T) {
 }
 
 func TestPrivateCacheScopeMiddlewareCoversEveryCacheableResult(t *testing.T) {
-	// Every result type the 2026-07-28 spec marks cacheable must be handled;
-	// missing one leaks a "public" hint for that method.
+	// Checks the reflective path resolves correctly against every cacheable
+	// type the SDK ships today — something the goodShape fake can't prove.
+	// It is no longer an exhaustiveness check: applyPrivateCacheHints covers
+	// anything satisfying mcp.CacheableResult, so a seventh type in a future
+	// SDK is handled whether or not this list mentions it.
 	cases := map[string]mcp.Result{
 		"server/discover":          &mcp.DiscoverResult{},
 		"tools/list":               &mcp.ListToolsResult{},
@@ -187,6 +190,20 @@ type noCacheableField struct {
 	Other string
 }
 
+// embedsCacheable is embedded by pointer below, so Cacheable is promoted
+// through it — FieldByName then delegates to FieldByIndex, which panics on the
+// nil pointer. This is the panic mode a Kind() == Struct check does not cover.
+type embedsCacheable struct {
+	Cacheable struct {
+		CacheScope string
+		TTLMs      int
+	}
+}
+
+type nilEmbeddedPointer struct {
+	*embedsCacheable
+}
+
 // TestSetCacheHintsWritesTheHints is the happy path through the reflection.
 func TestSetCacheHintsWritesTheHints(t *testing.T) {
 	target := &goodShape{}
@@ -214,6 +231,7 @@ func TestSetCacheHintsGivesUpWithoutPanicking(t *testing.T) {
 		{"no Cacheable field", &noCacheableField{}},
 		{"Cacheable is a pointer", &pointerCacheable{}},
 		{"TTLMs is not an int", &wrongTTLKind{}},
+		{"Cacheable promoted through a nil embedded pointer", &nilEmbeddedPointer{}},
 		{"CacheScope is not a string", &wrongScopeKind{}},
 	}
 
