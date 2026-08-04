@@ -2,7 +2,6 @@ package vault
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -81,20 +80,36 @@ func (s *SleuthVault) handleQueryTool(ctx context.Context, req *mcp.CallToolRequ
 
 	log.Debug("calling sleuth query API with SSE streaming", "repoUrl", gitCtx.RepoURL, "branch", branch, "commit", commit)
 
-	// Create event callback that sends MCP log notifications to keep connection alive
+	// Create event callback that streams progress back to the client. The
+	// traffic doubles as a keepalive, which is what stops a long query from
+	// tripping the client's idle timeout.
+	//
+	// This used to send `notifications/message` via Session.Log. MCP
+	// 2026-07-28 deprecated the Logging feature (SEP-2577) and — more
+	// pointedly — forbids emitting log notifications for a request that didn't
+	// ask for them. Progress notifications are the request-scoped mechanism
+	// that survived, and they carry the same "still working" signal.
+	//
+	// Progress is opt-in: the client requests it with a progressToken in the
+	// request's `_meta`. Without one there's nothing to correlate a
+	// notification to, so we log locally and send nothing over the wire.
+	progressToken := req.Params.GetProgressToken()
+	var progressSeq float64
 	onEvent := func(eventType, content string) {
 		log.Debug("query progress", "type", eventType, "content", content)
 
-		// Send log notification to Claude Code via MCP
-		// This writes to stdio, keeping the connection alive and preventing timeout
-		logData, _ := json.Marshal(map[string]string{
-			"event":   eventType,
-			"message": content,
-		})
-		_ = req.Session.Log(ctx, &mcp.LoggingMessageParams{
-			Level:  "info",
-			Logger: "sleuth-query",
-			Data:   logData,
+		if progressToken == nil {
+			return
+		}
+		progressSeq++
+		_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+			ProgressToken: progressToken,
+			// Total stays unset: the API streams until it's done, so progress
+			// climbs without ever forming a completion ratio. The spec allows
+			// exactly this ("should increase every time progress is made, even
+			// if the total is unknown").
+			Progress: progressSeq,
+			Message:  fmt.Sprintf("%s: %s", eventType, content),
 		})
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/config"
 	"github.com/sleuth-io/sx/v2/internal/logger"
+	mcpserver "github.com/sleuth-io/sx/v2/internal/mcp"
 	vaultpkg "github.com/sleuth-io/sx/v2/internal/vault"
 )
 
@@ -39,6 +40,9 @@ func buildCloudServeMCPServerFromConfig(cfg *config.Config) (*mcp.Server, error)
 		Version: "1.0.0",
 	}
 	server := mcp.NewServer(impl, nil)
+	// Relay results are per-user by construction; don't let them be cached
+	// across authorization contexts. See mcpserver.PrivateCacheScopeMiddleware.
+	server.AddReceivingMiddleware(mcpserver.PrivateCacheScopeMiddleware(mcpserver.DefaultCacheTTL))
 
 	vault, err := vaultpkg.NewFromConfig(cfg)
 	if err != nil {

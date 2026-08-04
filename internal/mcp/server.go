@@ -60,6 +60,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	mcpServer := mcp.NewServer(impl, nil)
+	mcpServer.AddReceivingMiddleware(PrivateCacheScopeMiddleware(DefaultCacheTTL))
 
 	// NOTE: read_skill tool is available but not currently registered.
 	// It can be re-enabled for clients that don't support native skill discovery.
