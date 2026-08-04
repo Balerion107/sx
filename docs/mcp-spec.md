@@ -214,8 +214,12 @@ Progress is **not** a keepalive. Events fire on tool-call boundaries, so a query
 spends its time inside a single API call emits nothing even with a token present, and
 the relay path emits nothing regardless. The mechanism it replaced (`notifications/message`
 via `Session.Log`) was equally conditional — it required the client to have called
-`logging/setLevel`. There is no protocol-level keepalive available: `ping` was removed in
-`2026-07-28` and the Go SDK rejects it for new-protocol peers.
+`logging/setLevel`.
+
+No protocol-level keepalive is available for new-protocol peers: `ping` was removed in
+`2026-07-28` and the Go SDK rejects it for them. `ServerOptions.KeepAlive` still works for
+legacy peers, but it is a per-server setting that would tear down modern sessions, so sx
+does not enable it.
 
 ## Caching hints
 

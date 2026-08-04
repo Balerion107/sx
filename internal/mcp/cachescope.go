@@ -71,39 +71,57 @@ func applyPrivateCacheHints(res mcp.Result, ttlMs int) {
 	if _, ok := res.(mcp.CacheableResult); !ok {
 		return
 	}
-
-	// Results are always pointers to structs embedding mcp.Cacheable by value.
-	value := reflect.ValueOf(res)
-	if value.Kind() != reflect.Pointer || value.IsNil() {
-		return
-	}
-	cacheable := value.Elem().FieldByName(cacheableFieldName)
-	if !cacheable.IsValid() || !cacheable.CanSet() {
-		// The SDK changed shape underneath us. Say so loudly: the alternative
-		// is shipping "public" on an authenticated per-user result.
+	if reason := setCacheHints(res, ttlMs); reason != "" {
+		// Never silent: a result going out without our hints may carry the
+		// SDK's "public" default, which is shareable across authorization
+		// contexts — the exact failure this file prevents.
 		logger.Get().Error(
-			"cannot set cache hints on result; it may be served with the SDK's public default",
+			"cache hints not applied; result may carry the SDK's public cacheScope default",
+			"reason", reason,
 			"type", reflect.TypeOf(res).String(),
 		)
-		return
+	}
+}
+
+// setCacheHints writes the private cacheScope and TTL onto a result's embedded
+// mcp.Cacheable. Returns "" on success, or the reason it gave up.
+//
+// Takes `any` rather than mcp.Result so the give-up branches are reachable from
+// a test: mcp.Result has an unexported method, so no fake outside the SDK can
+// implement it, and the SDK ships no wrong-shaped type to feed in. Without this
+// seam every guard below would be untestable — and an untestable guard is one
+// that can be deleted without anything failing.
+//
+// Every reflection step is checked before it is taken: FieldByName panics on a
+// non-struct and SetString/SetInt panic on a kind mismatch, which are precisely
+// the SDK shape changes this path exists to survive. A panic here would take
+// down the request instead of degrading to a logged warning.
+func setCacheHints(target any, ttlMs int) string {
+	value := reflect.ValueOf(target)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return "result is not a non-nil pointer"
+	}
+	elem := value.Elem()
+	if elem.Kind() != reflect.Struct {
+		return "result does not point at a struct"
+	}
+	cacheable := elem.FieldByName(cacheableFieldName)
+	if !cacheable.IsValid() || !cacheable.CanSet() {
+		return "no settable Cacheable field"
+	}
+	if cacheable.Kind() != reflect.Struct {
+		return "Cacheable field is not a struct"
 	}
 
-	// Kinds are checked, not just settability: SetString and SetInt panic on a
-	// mismatch, and an SDK field-type change is precisely the scenario this
-	// reflective path exists to survive. Panicking here would take down the
-	// request instead of degrading to a logged warning.
 	scope := cacheable.FieldByName("CacheScope")
 	ttl := cacheable.FieldByName("TTLMs")
 	if !scope.CanSet() || scope.Kind() != reflect.String ||
 		!ttl.CanSet() || !isIntKind(ttl.Kind()) {
-		logger.Get().Error(
-			"unexpected mcp.Cacheable shape; cache hints not applied, result may carry the SDK's public default",
-			"type", reflect.TypeOf(res).String(),
-		)
-		return
+		return "unexpected CacheScope/TTLMs shape"
 	}
 	scope.SetString(cacheScopePrivate)
 	ttl.SetInt(int64(ttlMs))
+	return ""
 }
 
 func isIntKind(k reflect.Kind) bool {

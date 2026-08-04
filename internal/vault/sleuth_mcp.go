@@ -97,11 +97,15 @@ func (s *SleuthVault) handleQueryTool(ctx context.Context, req *mcp.CallToolRequ
 	// logging/setLevel. Two gaps remain: a client that sends no progressToken
 	// gets no traffic at all, and QueryIntegrationStream only invokes onEvent
 	// on a ToolCallEvent, so a query that spends its time inside one API call
-	// emits nothing even with a token. There is no protocol-level fix
-	// available here: `ping` was removed in 2026-07-28 alongside the rest, and
-	// the SDK rejects it outright for modern peers (server.go:1880). If idle
-	// timeouts become a real problem, the fix belongs in the streaming API —
-	// emitting periodic heartbeat events — not in this callback.
+	// emits nothing even with a token.
+	//
+	// No protocol-level keepalive is available for new-protocol peers: `ping`
+	// was removed in 2026-07-28 and the SDK rejects it for them
+	// (server.go:1880). `ServerOptions.KeepAlive` does still work for legacy
+	// peers, but it's a per-server setting and would tear down modern
+	// sessions, so sx doesn't enable it. If idle timeouts become a real
+	// problem the fix belongs in the streaming API — periodic heartbeat
+	// events — not in this callback.
 	progressToken := req.Params.GetProgressToken()
 	var progressSeq float64
 	onEvent := func(eventType, content string) {

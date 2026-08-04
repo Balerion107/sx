@@ -151,32 +151,96 @@ func TestNewMCPServerInstallsCacheScopeMiddleware(t *testing.T) {
 	}
 }
 
-// TestApplyPrivateCacheHintsSurvivesUnexpectedShape guards the reflective path
-// against the scenario it exists for: an SDK whose Cacheable fields change type
-// or disappear. Reflection's SetString/SetInt panic on a kind mismatch, so a
-// naive implementation would take down the request rather than degrade.
-func TestApplyPrivateCacheHintsSurvivesUnexpectedShape(t *testing.T) {
-	// A result whose Cacheable-shaped fields have the wrong kinds. Not an
-	// mcp.CacheableResult, so it short-circuits before reflection — the point
-	// is that neither branch panics.
+// The shapes below stand in for SDK changes this code must survive. They can't
+// be fed through applyPrivateCacheHints — mcp.Result has an unexported method,
+// so nothing outside the SDK can implement it — which is why setCacheHints
+// takes `any`.
+type goodShape struct {
+	Cacheable struct {
+		CacheScope string
+		TTLMs      int
+	}
+}
+
+type wrongTTLKind struct {
+	Cacheable struct {
+		CacheScope string
+		TTLMs      string
+	}
+}
+
+type wrongScopeKind struct {
+	Cacheable struct {
+		CacheScope int
+		TTLMs      int
+	}
+}
+
+type pointerCacheable struct {
+	Cacheable *struct {
+		CacheScope string
+		TTLMs      int
+	}
+}
+
+type noCacheableField struct {
+	Other string
+}
+
+// TestSetCacheHintsWritesTheHints is the happy path through the reflection.
+func TestSetCacheHintsWritesTheHints(t *testing.T) {
+	target := &goodShape{}
+
+	if reason := setCacheHints(target, 60000); reason != "" {
+		t.Fatalf("gave up unexpectedly: %s", reason)
+	}
+	if target.Cacheable.CacheScope != "private" || target.Cacheable.TTLMs != 60000 {
+		t.Errorf("got (%q, %d), want (\"private\", 60000)", target.Cacheable.CacheScope, target.Cacheable.TTLMs)
+	}
+}
+
+// TestSetCacheHintsGivesUpWithoutPanicking covers every guard. Each of these
+// shapes would panic in reflect if the corresponding check were removed, so
+// deleting a guard fails this test rather than passing silently.
+func TestSetCacheHintsGivesUpWithoutPanicking(t *testing.T) {
 	cases := []struct {
-		name string
-		res  mcp.Result
+		name   string
+		target any
 	}{
-		{"nil result", nil},
-		{"non-cacheable result", &mcp.CallToolResult{}},
+		{"nil", nil},
+		{"non-pointer", goodShape{}},
+		{"typed nil pointer", (*goodShape)(nil)},
+		{"pointer to non-struct", new(int)},
+		{"no Cacheable field", &noCacheableField{}},
+		{"Cacheable is a pointer", &pointerCacheable{}},
+		{"TTLMs is not an int", &wrongTTLKind{}},
+		{"CacheScope is not a string", &wrongScopeKind{}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
 				if r := recover(); r != nil {
-					t.Fatalf("panicked on %s: %v", tc.name, r)
+					t.Fatalf("panicked: %v", r)
 				}
 			}()
-			applyPrivateCacheHints(tc.res, 60000)
+			if reason := setCacheHints(tc.target, 60000); reason == "" {
+				t.Errorf("wrote hints to an unexpected shape; want a give-up reason")
+			}
 		})
 	}
+}
+
+// TestApplyPrivateCacheHintsIgnoresNonCacheableResults keeps tools/call — which
+// carries no caching hints — passing through untouched.
+func TestApplyPrivateCacheHintsIgnoresNonCacheableResults(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panicked: %v", r)
+		}
+	}()
+	applyPrivateCacheHints(&mcp.CallToolResult{}, 60000)
+	applyPrivateCacheHints(nil, 60000)
 }
 
 func TestIsIntKindAcceptsOnlySignedInts(t *testing.T) {
