@@ -180,7 +180,8 @@ sx automatically detects when skills use MCP tools based on tool call patterns i
 
 ## Streaming and Progress
 
-The query tool uses Server-Sent Events (SSE) for streaming responses. During long-running queries, the tool sends progress notifications to keep the connection alive and inform the user of status:
+The query tool uses Server-Sent Events (SSE) for streaming responses. During long-running
+queries, the tool emits progress events describing what it is doing:
 
 ```
 event: progress
@@ -193,7 +194,41 @@ event: complete
 message: Query completed
 ```
 
-These notifications appear as log messages in the AI client, providing visibility into query progress.
+On the **stdio** transport (`sx mcp`) these are delivered as MCP
+`notifications/progress` on the response stream of the originating request.
+
+On the **relay** transport (`sx cloud serve`) they are not delivered at all. The relay
+bridge correlates responses by JSON-RPC id and drops everything else
+(`internal/cloud/bridge.go`), and the pulse endpoint answers each request with a single
+JSON body rather than a stream — so there is nowhere for a notification to go. Progress
+events are logged locally and otherwise dropped on that path.
+
+**Progress is opt-in.** The client asks for it by including a `progressToken` in the
+request's `_meta`; without one there is nothing to correlate a notification to, so sx
+sends none and logs locally instead. This replaced the previous mechanism, which sent
+`notifications/message` (log notifications) — MCP `2026-07-28` deprecated the Logging
+feature (SEP-2577) and forbids emitting log notifications for a request that did not
+ask for them.
+
+Progress is **not** a keepalive. Events fire on tool-call boundaries, so a query that
+spends its time inside a single API call emits nothing even with a token present, and
+the relay path emits nothing regardless. The mechanism it replaced (`notifications/message`
+via `Session.Log`) was equally conditional — it required the client to have called
+`logging/setLevel`.
+
+No protocol-level keepalive is available for new-protocol peers: `ping` was removed in
+`2026-07-28` and the Go SDK rejects it for them. `ServerOptions.KeepAlive` still works for
+legacy peers, but it is a per-server setting that would tear down modern sessions, so sx
+does not enable it.
+
+## Caching hints
+
+Per MCP `2026-07-28` (SEP-2549), list and read results carry caching hints:
+
+- `ttlMs` — how long the client may treat the result as fresh (60s).
+- `cacheScope` — always `private`. An sx server serves exactly one person's vault, so
+  its results must never be cached across authorization contexts. The Go SDK defaults
+  this to `public`; sx overrides it for every cacheable result.
 
 ## Error Handling
 
