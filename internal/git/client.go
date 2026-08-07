@@ -431,6 +431,20 @@ func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
 	return cmd.Run() == nil
 }
 
+// HasDeletedWorktreeFiles reports whether any tracked file is missing
+// from the working tree (git ls-files --deleted) — the signature of an
+// interrupted delete, whatever the repository's layout. Modified or
+// untracked files do not count, so pending local changes (queued usage
+// appends, say) never trigger a destructive restore.
+func (c *Client) HasDeletedWorktreeFiles(ctx context.Context, repoPath string) (bool, error) {
+	cmd := c.commandInRepo(ctx, repoPath, "ls-files", "--deleted")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("git ls-files --deleted failed: %w", err)
+	}
+	return len(strings.TrimSpace(string(out))) > 0, nil
+}
+
 // HasRef reports whether the given fully-qualified ref exists in the
 // local repository. Addressed by explicit --git-dir like HasCommit, so
 // discovery can never answer about an ancestor; the same non-bare

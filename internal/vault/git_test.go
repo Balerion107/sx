@@ -372,14 +372,20 @@ func TestGitSourceHandler_BranchRefTracksRemote(t *testing.T) {
 func TestGitVaultSyncHealsPartialWorktree(t *testing.T) {
 	t.Setenv("SX_CACHE_DIR", t.TempDir())
 
-	// A vault-shaped repo: the manifest is the always-present root file
-	// the heal keys on.
+	// A vault-shaped repo with a manifest and an asset file, so both
+	// partial-delete shapes can be exercised.
 	dir := t.TempDir()
 	runGit(t, dir, "init")
 	runGit(t, dir, "config", "user.email", "alice@example.com")
 	runGit(t, dir, "config", "user.name", "Alice")
 	if err := os.WriteFile(filepath.Join(dir, "sx.toml"), []byte("schema_version = 2\n"), 0644); err != nil {
 		t.Fatalf("failed to write manifest: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets", "skill"), 0755); err != nil {
+		t.Fatalf("failed to create asset dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "skill", "SKILL.md"), []byte("# s\n"), 0644); err != nil {
+		t.Fatalf("failed to write asset file: %v", err)
 	}
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "init vault")
@@ -393,17 +399,30 @@ func TestGitVaultSyncHealsPartialWorktree(t *testing.T) {
 		t.Fatalf("initial sync failed: %v", err)
 	}
 
-	// Simulate the interrupted repair: manifest gone, .git intact.
+	// Shape 1: the manifest itself is gone.
 	if err := os.Remove(filepath.Join(v.repoPath, "sx.toml")); err != nil {
 		t.Fatalf("failed to remove manifest: %v", err)
 	}
 	v.lastSynced = time.Time{} // bypass the sync TTL
-
 	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
 		t.Fatalf("sync over partial worktree failed: %v", err)
 	}
 	if !utils.FileExists(filepath.Join(v.repoPath, "sx.toml")) {
-		t.Fatal("partial worktree was not restored during sync")
+		t.Fatal("missing manifest was not restored during sync")
+	}
+
+	// Shape 2: a non-manifest tracked file is gone (readdir order is
+	// arbitrary, so an interrupted delete can take anything) — the heal
+	// must not key on any single filename.
+	if err := os.RemoveAll(filepath.Join(v.repoPath, "assets")); err != nil {
+		t.Fatalf("failed to remove asset dir: %v", err)
+	}
+	v.lastSynced = time.Time{}
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("sync over partial worktree failed: %v", err)
+	}
+	if !utils.FileExists(filepath.Join(v.repoPath, "assets", "skill", "SKILL.md")) {
+		t.Fatal("missing asset file was not restored during sync")
 	}
 }
 

@@ -33,10 +33,36 @@ func NewAssetFetcher(vault vaultpkg.Vault, vaultKey string) *AssetFetcher {
 	}
 }
 
+// diskCacheable reports whether an asset's content is immutable for its
+// declared version, and may therefore be served from the version-keyed
+// disk cache. A source-git asset pinned to a branch or tag can move
+// while its locked version stays fixed — caching it would pin the
+// first-ever fetch forever, defeating the fetch that tracks the remote.
+func diskCacheable(asset *lockfile.Asset) bool {
+	if asset.SourceGit == nil {
+		return true
+	}
+	ref := asset.SourceGit.Ref
+	if len(ref) != 40 {
+		return false
+	}
+	for _, c := range ref {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // FetchAsset downloads a single asset
 func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first
-	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
+	// Try disk cache first (mutable-ref assets are never disk-cached)
+	cacheable := diskCacheable(asset)
+	zipData = nil
+	err = errors.New("cache skipped")
+	if cacheable {
+		zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
+	}
 	if err == nil {
 		// Cache hit, extract metadata and return
 		metadataBytes, err := utils.ReadZipFile(zipData, "metadata.toml")
@@ -78,7 +104,9 @@ func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (z
 	}
 
 	// Cache to disk for future use
-	_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
+	if cacheable {
+		_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
+	}
 	// Ignore cache save errors - not critical
 
 	return zipData, meta, nil
@@ -86,8 +114,13 @@ func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (z
 
 // FetchAssetWithProgress downloads a single asset with progress bar
 func (f *AssetFetcher) FetchAssetWithProgress(ctx context.Context, asset *lockfile.Asset, bar *progressbar.ProgressBar) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first
-	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
+	// Try disk cache first (mutable-ref assets are never disk-cached)
+	cacheable := diskCacheable(asset)
+	zipData = nil
+	err = errors.New("cache skipped")
+	if cacheable {
+		zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
+	}
 	if err == nil {
 		// Cache hit, extract metadata and return
 		metadataBytes, err := utils.ReadZipFile(zipData, "metadata.toml")
@@ -139,7 +172,9 @@ func (f *AssetFetcher) FetchAssetWithProgress(ctx context.Context, asset *lockfi
 	}
 
 	// Cache to disk for future use
-	_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
+	if cacheable {
+		_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
+	}
 	// Ignore cache save errors - not critical
 
 	return zipData, meta, nil
