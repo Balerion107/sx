@@ -329,6 +329,84 @@ func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
 	}
 }
 
+// TestGitSourceHandler_BranchRefTracksRemote: fetching updates
+// origin/*, never local branches, so a branch ref must resolve to the
+// remote-tracking tip — not the local branch frozen at the original
+// clone.
+func TestGitSourceHandler_BranchRefTracksRemote(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	repoURL, _ := setupSourceGitRepo(t, 1)
+	dir := strings.TrimPrefix(repoURL, "file://")
+	branch := strings.TrimSpace(gitOut(t, dir, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	handler := NewGitSourceHandler(git.NewClient())
+	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, branch, "asset0")); err != nil {
+		t.Fatalf("initial branch fetch failed: %v", err)
+	}
+
+	// Advance the branch upstream; the next fetch must serve the new tip.
+	if err := os.WriteFile(filepath.Join(dir, "asset0", "SKILL.md"), []byte("# rev2\n"), 0644); err != nil {
+		t.Fatalf("failed to update skill file: %v", err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "rev2")
+
+	data, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, branch, "asset0"))
+	if err != nil {
+		t.Fatalf("branch fetch after upstream commit failed: %v", err)
+	}
+	content, err := utils.ReadZipFile(data, "SKILL.md")
+	if err != nil {
+		t.Fatalf("zip missing SKILL.md: %v", err)
+	}
+	if string(content) != "# rev2\n" {
+		t.Fatalf("branch ref served stale content %q, want the remote tip", content)
+	}
+}
+
+// TestGitVaultSyncHealsPartialWorktree: a vault clone with intact .git
+// but a working tree missing the manifest (an interrupted repair) must
+// be restored during sync — a pull alone reports up-to-date and
+// resurrects nothing.
+func TestGitVaultSyncHealsPartialWorktree(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	// A vault-shaped repo: the manifest is the always-present root file
+	// the heal keys on.
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "alice@example.com")
+	runGit(t, dir, "config", "user.name", "Alice")
+	if err := os.WriteFile(filepath.Join(dir, "sx.toml"), []byte("schema_version = 2\n"), 0644); err != nil {
+		t.Fatalf("failed to write manifest: %v", err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "init vault")
+	repoURL := "file://" + dir
+
+	v, err := NewGitVault(repoURL)
+	if err != nil {
+		t.Fatalf("failed to create vault: %v", err)
+	}
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("initial sync failed: %v", err)
+	}
+
+	// Simulate the interrupted repair: manifest gone, .git intact.
+	if err := os.Remove(filepath.Join(v.repoPath, "sx.toml")); err != nil {
+		t.Fatalf("failed to remove manifest: %v", err)
+	}
+	v.lastSynced = time.Time{} // bypass the sync TTL
+
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("sync over partial worktree failed: %v", err)
+	}
+	if !utils.FileExists(filepath.Join(v.repoPath, "sx.toml")) {
+		t.Fatal("partial worktree was not restored during sync")
+	}
+}
+
 // TestGitSourceHandler_FetchHealsPartialWorktree: a cache whose .git and
 // HEAD are intact but whose working tree lost files (an interrupted
 // delete) must heal on the next fetch. A plain checkout no-ops when

@@ -15,6 +15,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/manifest"
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
+	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
 // usagePushInterval is the minimum gap between successive
@@ -168,6 +169,13 @@ func (g *GitVault) RepairVaultClone(ctx context.Context) (discardedTip string, e
 		return "", fmt.Errorf("failed to resolve %s: %w", remoteRef, err)
 	}
 	if headSHA == remoteSHA {
+		// In sync by SHA can still mean a partial worktree (an
+		// interrupted repair): restore the tree before declaring clean.
+		if !utils.FileExists(filepath.Join(g.repoPath, manifest.FileName)) {
+			if err := g.gitClient.ForceCheckout(ctx, g.repoPath, "HEAD"); err != nil {
+				return "", fmt.Errorf("failed to restore vault working tree: %w", err)
+			}
+		}
 		g.markSynced()
 		return "", nil // already in sync — nothing to repair
 	}

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -83,6 +84,33 @@ func TestRepoCommandsDoNotEscapeToAncestor(t *testing.T) {
 	// immune: GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY would make a clone
 	// write outside its destination and make cat-file answer from the
 	// wrong object store.
+	//
+	// Verification must NOT inherit the poisoned env (t.Setenv scopes to
+	// the whole test), or the assertions would resolve against the
+	// ancestor and pass no matter what Clone did — so runClean strips
+	// the repo-selecting vars, and the ancestor's index is compared
+	// byte-for-byte to catch a clone writing through GIT_INDEX_FILE.
+	runClean := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = withoutEnv(os.Environ(), repoSelectingEnv)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	readIndex := func() []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(ancestor, ".git", "index"))
+		if err != nil {
+			t.Fatalf("read ancestor index: %v", err)
+		}
+		return b
+	}
+	indexBefore := readIndex()
+
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(ancestor, ".git", "index"))
 	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(ancestor, ".git", "objects"))
 	if client.HasCommit(ctx, cache, ancestorSHA) {
@@ -92,8 +120,11 @@ func TestRepoCommandsDoNotEscapeToAncestor(t *testing.T) {
 	if err := client.Clone(ctx, ancestor, cloneDst); err != nil {
 		t.Fatalf("Clone with inherited repo-selecting env failed: %v", err)
 	}
-	if got := run(cloneDst, "rev-parse", "HEAD"); got != ancestorSHA {
+	if got := runClean(cloneDst, "rev-parse", "HEAD"); got != ancestorSHA {
 		t.Fatalf("clone HEAD = %q, want %q", got, ancestorSHA)
+	}
+	if !bytes.Equal(readIndex(), indexBefore) {
+		t.Fatal("clone wrote through an inherited GIT_INDEX_FILE")
 	}
 }
 

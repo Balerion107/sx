@@ -425,6 +425,16 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 			return err
 		}
 		if !empty {
+			// A partial worktree (an interrupted repair's RemoveAll)
+			// pulls clean and restores nothing, so anchor the tree to
+			// HEAD before trusting it. The manifest is the vault's
+			// always-present root file; these clones are sx-owned, so
+			// clobbering is safe.
+			if !utils.FileExists(filepath.Join(g.repoPath, manifest.FileName)) {
+				if err := g.gitClient.ForceCheckout(ctx, g.repoPath, "HEAD"); err != nil {
+					return fmt.Errorf("failed to restore vault working tree: %w", err)
+				}
+			}
 			if err := g.pull(ctx); err != nil {
 				return err
 			}

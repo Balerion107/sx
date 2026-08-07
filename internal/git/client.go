@@ -431,6 +431,15 @@ func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
 	return cmd.Run() == nil
 }
 
+// HasRef reports whether the given fully-qualified ref exists in the
+// local repository. Addressed by explicit --git-dir like HasCommit, so
+// discovery can never answer about an ancestor; the same non-bare
+// absolute-path constraint applies.
+func (c *Client) HasRef(ctx context.Context, repoPath, ref string) bool {
+	cmd := c.command(ctx, "--git-dir", filepath.Join(repoPath, ".git"), "rev-parse", "--verify", "--quiet", ref)
+	return cmd.Run() == nil
+}
+
 // IsRepo reports whether repoPath is a usable git repository.
 // --resolve-git-dir checks that exact path — no upward discovery, so an
 // ancestor repository (a cache dir under a dotfiles-managed $HOME, say)
