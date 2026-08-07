@@ -158,6 +158,94 @@ func TestResolveKeepsInvocationSymlinkPath(t *testing.T) {
 	}
 }
 
+// On Linux (/proc/self/exe) and Windows the OS reports the running
+// executable's fully resolved path no matter how it was invoked, so the
+// invocation path alone cannot preserve a package manager's stable
+// symlink. Resolve must find the stable alias by probing the install
+// locations (the Linuxbrew shape of issue #222).
+func TestResolvePrefersStableAliasWhenRunningResolvedTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", root) // keep the host's own sx out of the probe
+	target := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", binaryName())
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	// The OS hands back the resolved target, not the symlink.
+	stubExecutable(t, target)
+	stubInstallDirs(t, []string{filepath.Join(root, "bin")})
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != link {
+		t.Fatalf("Resolve = %q, want stable alias %q, not the versioned target", got, link)
+	}
+}
+
+// Case-insensitive filesystems can report the running CLI as "SX"; the
+// running-CLI branch must still recognize it instead of falling through.
+func TestResolveMixedCaseInvocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("binary name differs on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	dir := tempRoot(t)
+	t.Setenv("PATH", dir)
+	want := writeFakeCLI(t, dir, "SX")
+	stubExecutable(t, want)
+	stubInstallDirs(t, nil)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != want {
+		t.Fatalf("Resolve = %q, want running binary %q", got, want)
+	}
+}
+
+// A hook pinned to a still-live versioned path must be upgraded once a
+// stabler spelling of the same binary resolves, while a hook already on
+// the stable spelling — or naming a different binary — is left alone.
+func TestShouldRewriteUpgradesSameBinaryDifferentSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", root)
+	target := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", binaryName())
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, target)
+	stubInstallDirs(t, []string{filepath.Join(root, "bin")})
+
+	if !ShouldRewrite(target + " install --hook-mode") {
+		t.Fatal("still-live versioned spelling of the resolved binary must be upgraded")
+	}
+	if ShouldRewrite(link + " install --hook-mode") {
+		t.Fatal("the stable spelling must not be rewritten")
+	}
+	other := writeFakeCLI(t, filepath.Join(root, "other"), binaryName())
+	if ShouldRewrite(other + " install --hook-mode") {
+		t.Fatal("a different binary must be left alone")
+	}
+}
+
 // A symlink whose name is not the CLI's ("skills" -> sx) is only recognizable
 // as the CLI after resolution, so the resolved path is used there.
 func TestResolveDifferentlyNamedSymlinkFallsBackToTarget(t *testing.T) {

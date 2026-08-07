@@ -112,23 +112,35 @@ func candidates() []string {
 	if exe, err := executable(); err == nil {
 		// Resolve symlinks so a shim in ~/.local/bin does not hide the real
 		// layout, but keep the original path when it cannot be resolved. The
-		// resolved path is used only for layout detection below — never as the
-		// path that gets written.
+		// resolved path anchors layout detection below; it is written into
+		// configs only when no stabler spelling of the same binary exists.
 		resolved := exe
 		if r, err := filepath.EvalSymlinks(exe); err == nil {
 			resolved = r
 		}
 
-		// Already running as the CLI. Prefer the invocation path over the
-		// resolved one: package managers that version their install directory
-		// expose a stable symlink (Homebrew's /opt/homebrew/bin/sx points into
-		// Cellar/sx/<version>/), and writing the resolved target into a hook
-		// leaves the hook pointing at a directory the next upgrade deletes.
-		if filepath.Base(exe) == binaryName() {
+		// Already running as the CLI. Prefer a stable spelling over the
+		// resolved target: package managers that version their install
+		// directory expose a stable symlink (Homebrew's /opt/homebrew/bin/sx
+		// points into Cellar/sx/<version>/), and writing the versioned target
+		// into a hook leaves the hook pointing at a directory the next
+		// upgrade deletes. On macOS the invocation path preserves that
+		// symlink, but Linux (/proc/self/exe) and Windows hand back the
+		// already-resolved target no matter how the process was invoked — so
+		// also probe the stable locations for an alias of this same binary.
+		// Comparisons use normalizedBase: the CLI may be invoked as "SX" on a
+		// case-insensitive filesystem.
+		if normalizedBase(exe) == binaryName() {
+			if alias := stableAlias(exe); alias != "" {
+				out = append(out, alias)
+			}
 			out = append(out, exe)
-		} else if filepath.Base(resolved) == binaryName() {
+		} else if normalizedBase(resolved) == binaryName() {
 			// Invoked through a differently-named symlink ("skills" -> sx):
 			// only the resolved path is recognizably the CLI.
+			if alias := stableAlias(resolved); alias != "" {
+				out = append(out, alias)
+			}
 			out = append(out, resolved)
 		}
 
@@ -143,6 +155,54 @@ func candidates() []string {
 		out = append(out, filepath.Join(dir, binaryName()))
 	}
 	return out
+}
+
+// stableAlias looks for a stable path — PATH, then the installer
+// directories — that resolves to the same binary as target, and returns
+// it, or "" when none exists. It never returns target's own spelling,
+// so callers can append it as a strictly-preferred candidate.
+func stableAlias(target string) string {
+	canon, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return ""
+	}
+
+	var probes []string
+	if p, err := exec.LookPath(binaryName()); err == nil {
+		probes = append(probes, p)
+	}
+	for _, dir := range installDirs() {
+		probes = append(probes, filepath.Join(dir, binaryName()))
+	}
+
+	for _, p := range probes {
+		if !isExecutableFile(p) {
+			continue
+		}
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil || !samePath(r, canon) {
+			continue
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if samePath(p, target) {
+			// The probe IS the target's spelling — nothing gained.
+			continue
+		}
+		return p
+	}
+	return ""
+}
+
+// samePath reports whether two paths are the same spelling, honoring
+// Windows case-insensitivity. It does not resolve symlinks.
+func samePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if goos == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // installDirs are where sx's own installers put the CLI. A GUI-launched client
@@ -349,11 +409,16 @@ func repairVerdict(argv0 string) (verdict, owned bool) {
 // ShouldRewrite reports whether an existing config command should be replaced
 // with the current one.
 //
-// That is NeedsRepair plus one upgrade case it deliberately excludes: a bare
-// "sx", which was written when no CLI could be found. It still works wherever
-// PATH has one, so it is not broken — but once a CLI is resolvable, an absolute
+// That is NeedsRepair plus two upgrade cases it deliberately excludes. A bare
+// "sx" was written when no CLI could be found; it still works wherever PATH
+// has one, so it is not broken — but once a CLI is resolvable, an absolute
 // path is strictly better, and without this a degraded first install stays
-// degraded forever.
+// degraded forever. And an absolute sx path that resolves to the same binary
+// as the current resolution but spells it differently — a versioned Homebrew
+// Cellar path recorded before the stable-alias preference existed — still
+// works today but dies on the next upgrade, so it is upgraded to the current
+// spelling. Distinct binaries (a terminal-installed CLI vs the app's bundled
+// one) are left alone to avoid rewrite thrash.
 func ShouldRewrite(cmd string) bool {
 	if NeedsRepair(cmd) {
 		return true
@@ -363,12 +428,24 @@ func ShouldRewrite(cmd string) bool {
 		return false
 	}
 	argv0 := fields[0]
-	if argv0 != normalizedBase(argv0) || !slices.Contains(legacyBinaryNames, strings.ToLower(argv0)) {
+	if !slices.Contains(legacyBinaryNames, normalizedBase(argv0)) {
 		return false
 	}
-	// Bare name: worth upgrading only if there is something better to point at.
-	_, err := Resolve()
-	return err == nil
+	if argv0 == normalizedBase(argv0) {
+		// Bare name: worth upgrading only if there is something better to point at.
+		_, err := Resolve()
+		return err == nil
+	}
+	if !isAbsolutePath(argv0) {
+		return false
+	}
+	resolved, err := Resolve()
+	if err != nil || samePath(argv0, resolved) {
+		return false
+	}
+	a, errA := filepath.EvalSymlinks(argv0)
+	b, errB := filepath.EvalSymlinks(resolved)
+	return errA == nil && errB == nil && samePath(a, b)
 }
 
 // MCPEntryNeedsRewrite reports whether an existing MCP server entry should be
@@ -506,11 +583,7 @@ func isResolvedCLI(argv0 string) bool {
 	if err != nil {
 		return false
 	}
-	a, b := filepath.Clean(argv0), filepath.Clean(resolved)
-	if goos == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
+	return samePath(argv0, resolved)
 }
 
 // normalizedBase returns argv[0]'s lowercased file name with separators
