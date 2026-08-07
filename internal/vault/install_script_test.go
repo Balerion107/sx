@@ -173,6 +173,15 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			},
 		},
 		{
+			// With SX_PROFILE set, the add-a-profile guidance must not
+			// prescribe a bare activate — the override keeps winning.
+			name:        "different vault with SX_PROFILE set adjusts guidance",
+			configJSON:  multiProfileConfig([]string{"other"}, "https://github.com/acme/other", "https://github.com/acme/third"),
+			extraEnv:    []string{"SX_PROFILE=other"},
+			wantExit:    1,
+			wantOutputs: []string{"add <name> to SX_PROFILE"},
+		},
+		{
 			name:        "no config falls through to sx init",
 			configJSON:  "",
 			wantExit:    0,

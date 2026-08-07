@@ -150,7 +150,15 @@ EOF
     echo "To add this vault as a separate profile, run:"
     echo "  sx profile add <name>   # enter this vault URL when prompted:"
     echo "  #   $VAULT_URL"
-    echo "  sx profile activate <name>"
+    # Activation guidance must match how sx will actually resolve the
+    # active set: while SX_PROFILE is set, activate is a no-op because
+    # the override keeps winning.
+    if [ -n "${SX_PROFILE:-}" ]; then
+        echo "  # then add <name> to SX_PROFILE (comma-separated), or unset"
+        echo "  # SX_PROFILE and run: sx profile activate <name>"
+    else
+        echo "  sx profile activate <name>"
+    fi
     echo
     echo "See docs/profiles.md in the sx repository for details."
     exit 1
