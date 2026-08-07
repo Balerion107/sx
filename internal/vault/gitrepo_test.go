@@ -194,7 +194,10 @@ func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
 		`s#\.git$##`,
 		`s#^git@([^:]+):#https://\1/#`,
 		`"repositoryUrl"`,
-		"SX_PROFILE=<name> sx init",
+		// The remediation must use the interactive profile add flow: the
+		// non-interactive `SX_PROFILE=<name> sx init` path silently clears
+		// the global force-enabled/disabled client lists.
+		"sx profile add <name>",
 		"sx profile activate <name>",
 		// Credential-bearing URLs must not be echoed verbatim.
 		`s#://[^/@]+@#://#`,
