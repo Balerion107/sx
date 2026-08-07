@@ -178,6 +178,7 @@ func (c *Client) Clone(ctx context.Context, repoURL, destPath string) error {
 func (c *Client) Fetch(ctx context.Context, repoPath string) error {
 	cmd := c.command(ctx, "fetch", "--quiet", "--all")
 	cmd.Dir = repoPath
+	forbidUpwardDiscovery(cmd, repoPath)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -185,6 +186,17 @@ func (c *Client) Fetch(ctx context.Context, repoPath string) error {
 	}
 
 	return nil
+}
+
+// forbidUpwardDiscovery stops git's repository discovery from walking
+// above repoPath. Cache directories can sit inside an unrelated
+// repository (a dotfiles-managed $HOME, a hand-set SX_CACHE_DIR inside
+// a checkout); when repoPath's own .git is unusable, discovery would
+// otherwise run the command against that ancestor — a fetch of someone
+// else's remote, or a checkout that mutates a working tree sx doesn't
+// own.
+func forbidUpwardDiscovery(cmd *exec.Cmd, repoPath string) {
+	cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(repoPath))
 }
 
 // Reset runs `git reset --<mode> <ref>` in repoPath. Used by vault-clone
@@ -302,6 +314,7 @@ func (c *Client) PushSetUpstream(ctx context.Context, repoPath, branch string) e
 func (c *Client) Checkout(ctx context.Context, repoPath, ref string) error {
 	cmd := c.command(ctx, "checkout", "--quiet", ref)
 	cmd.Dir = repoPath
+	forbidUpwardDiscovery(cmd, repoPath)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

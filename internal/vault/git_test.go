@@ -234,11 +234,18 @@ func TestGitSourceHandler_BadRefDoesNotDestroyCache(t *testing.T) {
 // discovery must not make a corrupt cache look healthy — recovery has
 // to fire against the cache itself, not the ancestor.
 func TestGitSourceHandler_CorruptCacheInsideAncestorRepo(t *testing.T) {
-	// The cache root is itself a git repository.
+	// The cache root is itself a git repository, with a commit so HEAD
+	// and status give us something to compare against afterwards.
 	ancestor := t.TempDir()
 	runGit(t, ancestor, "init")
 	runGit(t, ancestor, "config", "user.email", "alice@example.com")
 	runGit(t, ancestor, "config", "user.name", "Alice")
+	if err := os.WriteFile(filepath.Join(ancestor, "README.md"), []byte("dotfiles\n"), 0644); err != nil {
+		t.Fatalf("failed to write ancestor file: %v", err)
+	}
+	runGit(t, ancestor, "add", ".")
+	runGit(t, ancestor, "commit", "-m", "ancestor commit")
+	ancestorHead := gitOut(t, ancestor, "rev-parse", "HEAD")
 	t.Setenv("SX_CACHE_DIR", ancestor)
 
 	repoURL, sha := setupSourceGitRepo(t, 1)
@@ -259,6 +266,15 @@ func TestGitSourceHandler_CorruptCacheInsideAncestorRepo(t *testing.T) {
 	}
 	if !utils.IsZipFile(data) {
 		t.Fatal("fetched data is not a valid zip")
+	}
+
+	// The ancestor repository must be completely untouched: no fetch of
+	// its remotes, no checkout switching its HEAD, no dirtied status.
+	if got := gitOut(t, ancestor, "rev-parse", "HEAD"); got != ancestorHead {
+		t.Fatalf("ancestor HEAD changed: %q -> %q", ancestorHead, got)
+	}
+	if status := gitOut(t, ancestor, "status", "--porcelain", "README.md"); strings.TrimSpace(status) != "" {
+		t.Fatalf("ancestor working tree dirtied: %q", status)
 	}
 }
 
