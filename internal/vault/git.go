@@ -256,9 +256,12 @@ func (g *GitSourceHandler) fetch(ctx context.Context, repoPath string) error {
 	return g.gitClient.Fetch(ctx, repoPath)
 }
 
-// checkout checks out a specific ref (commit SHA)
+// checkout force-checks-out a specific ref (commit SHA). Force matters:
+// a plain checkout no-ops when HEAD already equals the ref, so a cache
+// whose working tree lost files (an interrupted delete) would never
+// heal — sx owns these clones outright, so clobbering is safe.
 func (g *GitSourceHandler) checkout(ctx context.Context, repoPath, ref string) error {
-	return g.gitClient.Checkout(ctx, repoPath, ref)
+	return g.gitClient.ForceCheckout(ctx, repoPath, ref)
 }
 
 // findZipFiles finds all .zip files in a directory (non-recursive)

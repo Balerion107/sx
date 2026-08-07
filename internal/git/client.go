@@ -351,6 +351,22 @@ func (c *Client) Checkout(ctx context.Context, repoPath, ref string) error {
 	return nil
 }
 
+// ForceCheckout checks out a ref with --force, restoring any missing or
+// modified working-tree files. For sx-owned cache clones only: a plain
+// checkout is a no-op when HEAD already equals the target, so a partial
+// working tree (an interrupted delete) would otherwise never heal — and
+// no local edit in these caches is worth preserving.
+func (c *Client) ForceCheckout(ctx context.Context, repoPath, ref string) error {
+	cmd := c.commandInRepo(ctx, repoPath, "checkout", "--quiet", "--force", ref)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout --force failed: %w\nOutput: %s", err, string(output))
+	}
+
+	return nil
+}
+
 // LsRemote queries a remote repository for a specific ref
 // Returns the commit hash for the ref
 func (c *Client) LsRemote(ctx context.Context, repoURL, ref string) (string, error) {

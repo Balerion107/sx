@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -297,11 +298,46 @@ func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
 		t.Fatalf("failed to create corrupt .git: %v", err)
 	}
 
-	if err := v.cloneOrUpdate(context.Background()); err != nil {
-		t.Fatalf("cloneOrUpdate failed: %v", err)
+	// Unlocked sync must refuse to repair (repair deletes shared state)…
+	if err := v.cloneOrUpdate(context.Background()); !errors.Is(err, errCorruptVaultClone) {
+		t.Fatalf("cloneOrUpdate = %v, want errCorruptVaultClone", err)
+	}
+	// …while the locked variant discards and re-clones.
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("cloneOrUpdateLocked failed: %v", err)
 	}
 	if !v.gitClient.IsRepo(context.Background(), v.repoPath) {
 		t.Fatal("corrupt vault clone was not re-cloned")
+	}
+}
+
+// TestGitSourceHandler_FetchHealsPartialWorktree: a cache whose .git and
+// HEAD are intact but whose working tree lost files (an interrupted
+// delete) must heal on the next fetch. A plain checkout no-ops when
+// HEAD already equals the pinned SHA, which made this shape permanent.
+func TestGitSourceHandler_FetchHealsPartialWorktree(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	repoURL, sha := setupSourceGitRepo(t, 1)
+	handler := NewGitSourceHandler(git.NewClient())
+
+	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, sha, "asset0")); err != nil {
+		t.Fatalf("warm fetch failed: %v", err)
+	}
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
+	if err != nil {
+		t.Fatalf("failed to get cache path: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(repoCache, "asset0")); err != nil {
+		t.Fatalf("failed to remove asset dir: %v", err)
+	}
+
+	data, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, sha, "asset0"))
+	if err != nil {
+		t.Fatalf("fetch after partial delete failed: %v", err)
+	}
+	if !utils.IsZipFile(data) {
+		t.Fatal("fetched data is not a valid zip")
 	}
 }
 
