@@ -1,8 +1,8 @@
 package vault
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,45 +43,104 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The fixture mirrors what sx actually writes: json.MarshalIndent
+	// output with the active profile's repositoryUrl duplicated at the
+	// top level for old-binary compat (internal/config/profile.go), so
+	// the script's extraction is tested against the real spacing and
+	// against multiple URL lines.
+	type testProfile struct {
+		Type          string `json:"type,omitempty"`
+		RepositoryURL string `json:"repositoryUrl,omitempty"`
+	}
+	type testConfig struct {
+		DefaultProfile string                 `json:"defaultProfile,omitempty"`
+		ActiveProfiles []string               `json:"activeProfiles,omitempty"`
+		Type           string                 `json:"type,omitempty"`
+		RepositoryURL  string                 `json:"repositoryUrl,omitempty"`
+		Profiles       map[string]testProfile `json:"profiles"`
+	}
+	marshal := func(cfg testConfig) string {
+		data, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
 	configFor := func(url string) string {
-		return fmt.Sprintf(`{"profiles":{"default":{"repositoryUrl":%q}}}`, url)
+		return marshal(testConfig{
+			DefaultProfile: "default",
+			ActiveProfiles: []string{"default"},
+			Type:           "git",
+			RepositoryURL:  url,
+			Profiles: map[string]testProfile{
+				"default": {Type: "git", RepositoryURL: url},
+			},
+		})
+	}
+	multiProfileConfig := func(activeURL, otherURL string) string {
+		return marshal(testConfig{
+			DefaultProfile: "other",
+			ActiveProfiles: []string{"other"},
+			Type:           "git",
+			RepositoryURL:  activeURL,
+			Profiles: map[string]testProfile{
+				"other": {Type: "git", RepositoryURL: activeURL},
+				"work":  {Type: "git", RepositoryURL: otherURL},
+			},
+		})
 	}
 
 	cases := []struct {
-		name       string
-		configJSON string
-		wantExit   int
-		wantOutput string
+		name        string
+		configJSON  string
+		wantExit    int
+		wantOutputs []string
 	}{
 		{
-			name:       "same vault exits 0",
-			configJSON: configFor("https://github.com/acme/vault"),
-			wantExit:   0,
-			wantOutput: "already configured for this vault",
+			name:        "same vault exits 0",
+			configJSON:  configFor("https://github.com/acme/vault"),
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
 		},
 		{
-			name:       "ssh spelling of same vault exits 0",
-			configJSON: configFor("git@github.com:acme/vault.git"),
-			wantExit:   0,
-			wantOutput: "already configured for this vault",
+			name:        "ssh spelling of same vault exits 0",
+			configJSON:  configFor("git@github.com:acme/vault.git"),
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
 		},
 		{
-			name:       "gitless spelling of same vault exits 0",
-			configJSON: configFor("https://github.com/acme/vault.git"),
-			wantExit:   0,
-			wantOutput: "already configured for this vault",
+			name:        "gitless spelling of same vault exits 0",
+			configJSON:  configFor("https://github.com/acme/vault.git"),
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
 		},
 		{
-			name:       "prefix neighbour is a different vault",
-			configJSON: configFor("https://github.com/acme/vault-team"),
+			name:        "prefix neighbour is a different vault",
+			configJSON:  configFor("https://github.com/acme/vault-team"),
+			wantExit:    1,
+			wantOutputs: []string{"sx profile activate"},
+		},
+		{
+			name:        "inactive profile matching this vault exits 0",
+			configJSON:  multiProfileConfig("https://github.com/acme/other", "git@github.com:acme/vault.git"),
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
+		},
+		{
+			name:       "no profile matches lists every configured vault",
+			configJSON: multiProfileConfig("https://github.com/acme/other", "https://github.com/acme/third"),
 			wantExit:   1,
-			wantOutput: "sx profile activate",
+			wantOutputs: []string{
+				"sx profile activate",
+				"https://github.com/acme/other",
+				"https://github.com/acme/third",
+			},
 		},
 		{
-			name:       "no config falls through to sx init",
-			configJSON: "",
-			wantExit:   0,
-			wantOutput: "stub-sx init --type git --repo-url https://github.com/acme/vault",
+			name:        "no config falls through to sx init",
+			configJSON:  "",
+			wantExit:    0,
+			wantOutputs: []string{"stub-sx init --type git --repo-url https://github.com/acme/vault"},
 		},
 	}
 
@@ -112,8 +171,10 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			if exit != tc.wantExit {
 				t.Fatalf("exit = %d, want %d\noutput:\n%s", exit, tc.wantExit, out)
 			}
-			if !strings.Contains(string(out), tc.wantOutput) {
-				t.Fatalf("output missing %q:\n%s", tc.wantOutput, out)
+			for _, want := range tc.wantOutputs {
+				if !strings.Contains(string(out), want) {
+					t.Fatalf("output missing %q:\n%s", want, out)
+				}
 			}
 		})
 	}

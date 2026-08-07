@@ -55,6 +55,10 @@ into client directories under the home directory. A complete sandbox
 overrides all three:
 
 ```bash
+set -u                               # fail loudly on any unset variable
+SANDBOX="$(mktemp -d)"
+VAULT_URL="https://github.com/acme/vault"   # your vault URL
+
 export HOME="$SANDBOX/home"          # client install targets (~/.claude, …)
 export SX_CONFIG_DIR="$SANDBOX/config"
 export SX_CACHE_DIR="$SANDBOX/cache"
