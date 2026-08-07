@@ -230,18 +230,34 @@ func TestShouldRewriteUpgradesStaleCellarVersion(t *testing.T) {
 	}
 }
 
-// isStableSpelling must split PATH with the goos seam's separator so the
-// Windows shape is testable from any host.
-func TestIsStableSpellingWindowsPath(t *testing.T) {
-	stubGOOS(t, "windows")
-	stubInstallDirs(t, nil)
-	t.Setenv("PATH", `C:/tools;C:/bin`)
-
-	if !isStableSpelling(`C:/tools/` + binaryName()) {
-		t.Fatal("a binary in a Windows PATH directory must count as stable")
+// The alias trade keys purely on the versioned-tree shape: a CLI outside
+// installDirs is recorded as invoked, even when an installDirs symlink to
+// the same binary exists. Anything else would make the recorded spelling
+// depend on PATH, which differs between terminal and GUI launches, and
+// alternate between installs of the same binary.
+func TestResolveKeepsNonBrewInvocationDespiteAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
 	}
-	if isStableSpelling(`C:/elsewhere/` + binaryName()) {
-		t.Fatal("a binary outside PATH and installDirs must not count as stable")
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	want := writeFakeCLI(t, filepath.Join(root, "tools"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "localbin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(want, filepath.Join(root, "localbin", binaryName())); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, want)
+	stubInstallDirs(t, []string{filepath.Join(root, "localbin")})
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != want {
+		t.Fatalf("Resolve = %q, want the invoked path %q, not the installDirs alias", got, want)
 	}
 }
 

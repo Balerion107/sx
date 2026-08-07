@@ -162,34 +162,25 @@ func candidates() []string {
 			resolved = r
 		}
 
-		// Already running as the CLI. Prefer a stable spelling over the
-		// resolved target: package managers that version their install
-		// directory expose a stable symlink (Homebrew's /opt/homebrew/bin/sx
-		// points into Cellar/sx/<version>/), and writing the versioned target
-		// into a hook leaves the hook pointing at a directory the next
-		// upgrade deletes. On macOS the invocation path preserves that
-		// symlink, but Linux (/proc/self/exe) and Windows hand back the
-		// already-resolved target no matter how the process was invoked — so
-		// when the known path is not itself a stable spelling, probe the
-		// stable locations for an alias of this same binary. An
-		// already-stable invocation path is kept as-is: a user shim earlier
-		// on PATH must not displace the spelling that was actually invoked.
-		// Comparisons use normalizedBase: the CLI may be invoked as "SX" on a
-		// case-insensitive filesystem.
+		// Already running as the CLI. Exactly one shape is traded for an
+		// alias: a versioned package-manager tree (Homebrew's Cellar),
+		// whose stable bin/ symlink the next upgrade preserves while
+		// deleting the versioned target. Everything else is recorded as
+		// invoked — deliberately without consulting PATH, which differs
+		// between a terminal and a GUI-launched client and would make the
+		// recorded spelling alternate between installs of the same binary.
+		// Comparisons use normalizedBase: the CLI may be invoked as "SX" on
+		// a case-insensitive filesystem.
 		if normalizedBase(exe) == binaryName() {
-			if !isStableSpelling(exe) {
-				if alias := stableAlias(exe); alias != "" {
-					out = append(out, alias)
-				}
+			if alias := versionedTreeAlias(exe); alias != "" {
+				out = append(out, alias)
 			}
 			out = append(out, exe)
 		} else if normalizedBase(resolved) == binaryName() {
 			// Invoked through a differently-named symlink ("skills" -> sx):
 			// only the resolved path is recognizably the CLI.
-			if !isStableSpelling(resolved) {
-				if alias := stableAlias(resolved); alias != "" {
-					out = append(out, alias)
-				}
+			if alias := versionedTreeAlias(resolved); alias != "" {
+				out = append(out, alias)
 			}
 			out = append(out, resolved)
 		}
@@ -207,53 +198,25 @@ func candidates() []string {
 	return out
 }
 
-// stableAlias looks for a stable path that names the same binary as
-// target, and returns it, or "" when none exists. It never returns
-// target's own spelling, so callers can append it as a strictly-preferred
-// candidate.
-//
-// Probe order matters. A Homebrew Cellar target names its own stable
-// prefix, so that alias is derived directly from the path and cannot
-// depend on PATH — GUI-launched clients run hooks under launchd's
-// minimal PATH, where a LookPath-only probe would fail and the hook
-// would be rewritten back to the fragile versioned path. PATH and the
-// installer directories are consulted after.
-func stableAlias(target string) string {
-	canon, err := filepath.EvalSymlinks(target)
-	if err != nil {
+// versionedTreeAlias returns the stable spelling implied by a versioned
+// package-manager tree, when that alias exists on disk. A Homebrew-style
+// Cellar target names its own prefix — /opt/homebrew/Cellar/sx/2.3.1/bin/sx
+// implies /opt/homebrew/bin/sx — so the alias derives from the path alone,
+// with no PATH or installDirs consultation. That restraint is the point:
+// PATH differs between a terminal and a GUI-launched client, and any
+// PATH-dependent preference would make the recorded spelling alternate
+// between installs of the same binary. Only the versioned-tree shape is
+// fragile enough to trade away; every other path returns "".
+func versionedTreeAlias(path string) string {
+	canon := path
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		canon = r
+	}
+	alias := brewCellarAlias(canon)
+	if alias == "" || !isExecutableFile(alias) || samePath(alias, path) {
 		return ""
 	}
-
-	var probes []string
-	if alias := brewCellarAlias(canon); alias != "" {
-		probes = append(probes, alias)
-	}
-	if p, err := exec.LookPath(binaryName()); err == nil {
-		probes = append(probes, p)
-	}
-	for _, dir := range installDirs() {
-		probes = append(probes, filepath.Join(dir, binaryName()))
-	}
-
-	for _, p := range probes {
-		if !isExecutableFile(p) {
-			continue
-		}
-		// Identity, not spelling: stat follows symlinks, and os.SameFile
-		// sidesteps case differences on case-insensitive filesystems.
-		if !sameFile(p, canon) {
-			continue
-		}
-		if abs, err := filepath.Abs(p); err == nil {
-			p = abs
-		}
-		if samePath(p, target) {
-			// The probe IS the target's spelling — nothing gained.
-			continue
-		}
-		return p
-	}
-	return ""
+	return alias
 }
 
 // brewCellarAlias derives the stable bin path a Homebrew-style Cellar
@@ -269,59 +232,14 @@ func brewCellarAlias(canon string) string {
 	return filepath.Join(canon[:idx], "bin", binaryName())
 }
 
-// isStableSpelling reports whether path already lives somewhere durable:
-// a PATH directory or an installer directory, and not inside a versioned
-// Cellar tree. Such a path is kept as-is rather than traded for whatever
-// alias happens to probe first.
-func isStableSpelling(path string) bool {
-	if strings.Contains(filepath.ToSlash(path), "/Cellar/") {
-		return false
-	}
-	dir := filepath.Dir(path)
-	for _, d := range installDirs() {
-		if d != "" && samePath(dir, d) {
-			return true
-		}
-	}
-	// Split PATH with the seam's separator, not the host's
-	// (filepath.SplitList keys off the real runtime.GOOS), so
-	// Windows-shaped behavior stays testable from any host.
-	sep := ":"
-	if goos == "windows" {
-		sep = ";"
-	}
-	for d := range strings.SplitSeq(os.Getenv("PATH"), sep) {
-		if d != "" && samePath(dir, d) {
-			return true
-		}
-	}
-	return false
-}
-
 // samePath reports whether two paths are the same spelling, honoring
-// Windows case-insensitivity. It does not resolve symlinks; use
-// sameFile to compare identity.
+// Windows case-insensitivity. It does not resolve symlinks.
 func samePath(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if goos == "windows" {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
-}
-
-// sameFile reports whether two paths name the same file on disk. Stat
-// follows symlinks, so this compares final targets and is immune to
-// case and separator differences string comparison would trip on.
-func sameFile(a, b string) bool {
-	ai, err := os.Stat(a)
-	if err != nil {
-		return false
-	}
-	bi, err := os.Stat(b)
-	if err != nil {
-		return false
-	}
-	return os.SameFile(ai, bi)
 }
 
 // installDirs are where sx's own installers put the CLI. A GUI-launched client
@@ -533,12 +451,12 @@ func repairVerdict(argv0 string) (verdict, owned bool) {
 // "sx" was written when no CLI could be found; it still works wherever PATH
 // has one, so it is not broken — but once a CLI is resolvable, an absolute
 // path is strictly better, and without this a degraded first install stays
-// degraded forever. And an absolute sx path that resolves to the same binary
-// as the current resolution but spells it differently — a versioned Homebrew
-// Cellar path recorded before the stable-alias preference existed — still
-// works today but dies on the next upgrade, so it is upgraded to the current
-// spelling. Distinct binaries (a terminal-installed CLI vs the app's bundled
-// one) are left alone to avoid rewrite thrash.
+// degraded forever. And an sx path inside a versioned package-manager tree
+// (a Homebrew Cellar keg, recorded before the stable-alias preference
+// existed) still works today but dies on the next upgrade, so it is upgraded
+// while its stable alias exists. Every other absolute spelling — including a
+// different spelling of the same binary — is left alone to avoid rewrite
+// thrash.
 func ShouldRewrite(cmd string) bool {
 	if NeedsRepair(cmd) {
 		return true
@@ -563,29 +481,17 @@ func ShouldRewrite(cmd string) bool {
 	if err != nil || samePath(argv0, resolved) {
 		return false
 	}
-	// One-directional on purpose: only a spelling that is itself fragile
-	// and has a stabler alias gets upgraded. Without this the branch
-	// would adopt whatever Resolve currently says in either direction —
-	// downgrading a stable entry to a versioned Cellar path when a
-	// GUI-launched client's minimal PATH skews resolution, or flapping
-	// between two equally stable aliases with PATH order.
-	if isStableSpelling(argv0) {
-		return false
-	}
-	// A Cellar-tree path with a live stable alias is fragile no matter
-	// which version it names. This must not require same-file identity
-	// with the current resolution: after a brew upgrade the recorded
-	// path still exists (brew cleanup is deferred) but names the OLD
-	// binary, which is exactly the entry that needs upgrading. sx never
-	// writes a Cellar path itself, so this cannot thrash against sx's
-	// own output.
-	if a := brewCellarAlias(argv0); a != "" && isExecutableFile(a) {
-		return true
-	}
-	if stableAlias(argv0) == "" {
-		return false
-	}
-	return sameFile(argv0, resolved)
+	// Only the versioned-tree shape is upgraded, and it needs no
+	// same-file identity with the current resolution: after a brew
+	// upgrade the recorded old keg still exists (cleanup is deferred)
+	// but names the OLD binary, which is exactly the entry that needs
+	// upgrading. Any other absolute spelling is the user's own choice
+	// and is left alone — including a different spelling of the same
+	// binary, which would otherwise thrash with PATH order between
+	// terminal and GUI launches. sx never writes a Cellar path itself,
+	// so this cannot flap against sx's own output.
+	a := brewCellarAlias(argv0)
+	return a != "" && isExecutableFile(a)
 }
 
 // MCPEntryNeedsRewrite reports whether an existing MCP server entry should be

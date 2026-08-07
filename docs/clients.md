@@ -56,8 +56,12 @@ For package-manager installs, the recorded path is the stable spelling of the
 binary: Homebrew's `/opt/homebrew/bin/sx` symlink rather than the versioned
 `Cellar/sx/<version>/` target it points at, which upgrades delete. An entry
 pinned to a versioned path by an older sx — including one whose target an
-upgrade already removed — is rewritten to the stable spelling on the next
-`sx install`.
+upgrade already removed — is rewritten to the stable spelling the next time
+`sx install` runs **from a terminal**. The repair is not automatic before
+then: until Homebrew cleans up the old keg, a hook naming it still invokes
+the older CLI, which re-pins itself; once the keg is gone the hook can't run
+at all. Either way, one terminal `sx install` with the current version fixes
+it for good.
 
 ## Web clients (cloud relay)
 
