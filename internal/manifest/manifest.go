@@ -710,17 +710,6 @@ func Parse(data []byte) (*Manifest, error) {
 	if m.SchemaVersion > CurrentSchemaVersion {
 		return nil, fmt.Errorf("%w: this vault uses schema %d but this sx build only understands up to %d — run 'sx update' (sx also self-updates in the background, so simply retrying later usually works)", ErrUnsupportedSchema, m.SchemaVersion, CurrentSchemaVersion)
 	}
-	// Source-git refs are copied verbatim into every consumer's lock
-	// file, whose validation only accepts pinned 40-hex SHAs — so a
-	// branch or tag name here would fail every consumer's install
-	// wholesale, with an error pointing nowhere near the manifest.
-	// Reject it at parse time instead, naming the asset, so it fails
-	// for the author who wrote it.
-	for i := range m.Assets {
-		if sg := m.Assets[i].SourceGit; sg != nil && !isFullCommitSHA(sg.Ref) {
-			return nil, fmt.Errorf("asset %q: source-git ref must be a full 40-character lowercase commit SHA, got %q (branch and tag names are not supported — pin the exact commit)", m.Assets[i].Name, sg.Ref)
-		}
-	}
 	return &m, nil
 }
 
@@ -781,7 +770,19 @@ func Marshal(m *Manifest) ([]byte, error) {
 }
 
 // Write writes the manifest to the given absolute path atomically.
+//
+// It refuses to write a manifest sx's own contract cannot consume: a
+// source-git ref that isn't a pinned 40-hex SHA would be copied into
+// every consumer's lock file and rejected by its validation, so the sx
+// command introducing it fails here, naming the asset — before the bad
+// ref ever lands on disk. Reads stay permissive (Parse does not check),
+// so a hand-authored bad ref can still be repaired with sx commands.
 func Write(m *Manifest, path string) error {
+	for i := range m.Assets {
+		if sg := m.Assets[i].SourceGit; sg != nil && !isFullCommitSHA(sg.Ref) {
+			return fmt.Errorf("asset %q: source-git ref must be a full 40-character lowercase commit SHA, got %q (branch and tag names are not supported — pin the exact commit)", m.Assets[i].Name, sg.Ref)
+		}
+	}
 	data, err := Marshal(m)
 	if err != nil {
 		return err

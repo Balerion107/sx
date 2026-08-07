@@ -329,42 +329,6 @@ func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
 	}
 }
 
-// TestGitSourceHandler_BranchRefTracksRemote: fetching updates
-// origin/*, never local branches, so a branch ref must resolve to the
-// remote-tracking tip — not the local branch frozen at the original
-// clone.
-func TestGitSourceHandler_BranchRefTracksRemote(t *testing.T) {
-	t.Setenv("SX_CACHE_DIR", t.TempDir())
-
-	repoURL, _ := setupSourceGitRepo(t, 1)
-	dir := strings.TrimPrefix(repoURL, "file://")
-	branch := strings.TrimSpace(gitOut(t, dir, "rev-parse", "--abbrev-ref", "HEAD"))
-
-	handler := NewGitSourceHandler(git.NewClient())
-	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, branch, "asset0")); err != nil {
-		t.Fatalf("initial branch fetch failed: %v", err)
-	}
-
-	// Advance the branch upstream; the next fetch must serve the new tip.
-	if err := os.WriteFile(filepath.Join(dir, "asset0", "SKILL.md"), []byte("# rev2\n"), 0644); err != nil {
-		t.Fatalf("failed to update skill file: %v", err)
-	}
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "rev2")
-
-	data, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, branch, "asset0"))
-	if err != nil {
-		t.Fatalf("branch fetch after upstream commit failed: %v", err)
-	}
-	content, err := utils.ReadZipFile(data, "SKILL.md")
-	if err != nil {
-		t.Fatalf("zip missing SKILL.md: %v", err)
-	}
-	if string(content) != "# rev2\n" {
-		t.Fatalf("branch ref served stale content %q, want the remote tip", content)
-	}
-}
-
 // TestGitVaultSyncHealsPartialWorktree: a vault clone with intact .git
 // but a working tree missing the manifest (an interrupted repair) must
 // be restored during sync — a pull alone reports up-to-date and

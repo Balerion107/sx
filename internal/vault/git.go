@@ -54,10 +54,12 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	// When the ref is a pinned SHA already in the shared cache, skip the
-	// network round-trip: once one fetch has brought the commit in, the
-	// queued fetches behind it (and any later install) reuse it. Branch
-	// and tag refs are mutable, so they always fetch.
+	// Refs are pinned 40-hex SHAs — the manifest and lock-file layers
+	// both enforce it — so once one fetch has brought the commit into
+	// the shared cache, the queued fetches behind it (and any later
+	// install) can skip the network round-trip: a cache hit is
+	// authoritative. The isFullSHA guard keeps this fast path safe even
+	// for a hand-built asset that bypassed validation.
 	if !isFullSHA(source.Ref) || !g.gitClient.HasCommit(ctx, repoCache, source.Ref) {
 		if err := g.cloneOrUpdate(ctx, source.URL, repoCache); err != nil {
 			return nil, fmt.Errorf("failed to clone/update repository: %w", err)
@@ -65,7 +67,7 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	}
 
 	// Checkout the specific commit
-	if err := g.checkout(ctx, repoCache, checkoutRef(ctx, g.gitClient, repoCache, source.Ref)); err != nil {
+	if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
 		// A ref the repository simply doesn't have won't appear after a
 		// re-clone either — fail fast rather than discarding the cache
 		// every other asset from this URL shares. Recovery is reserved
@@ -81,7 +83,7 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 		if cloneErr := g.clone(ctx, source.URL, repoCache); cloneErr != nil {
 			return nil, fmt.Errorf("failed to checkout ref %s (%w); re-clone of discarded cache also failed: %w", source.Ref, err, cloneErr)
 		}
-		if err := g.checkout(ctx, repoCache, checkoutRef(ctx, g.gitClient, repoCache, source.Ref)); err != nil {
+		if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
 			return nil, fmt.Errorf("failed to checkout ref %s after re-clone: %w", source.Ref, err)
 		}
 	}
@@ -264,20 +266,6 @@ func (g *GitSourceHandler) checkout(ctx context.Context, repoPath, ref string) e
 	return g.gitClient.ForceCheckout(ctx, repoPath, ref)
 }
 
-// checkoutRef maps a mutable ref to what the fetch actually updated:
-// fetching advances refs/remotes/origin/*, never local branches, so
-// checking out a branch name would pin the stale local branch from the
-// original clone forever. Tags and SHAs resolve as given.
-func checkoutRef(ctx context.Context, client *git.Client, repoPath, ref string) string {
-	if isFullSHA(ref) {
-		return ref
-	}
-	if client.HasRef(ctx, repoPath, "refs/remotes/origin/"+ref) {
-		return "origin/" + ref
-	}
-	return ref
-}
-
 // findZipFiles finds all .zip files in a directory (non-recursive)
 func (g *GitSourceHandler) findZipFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
@@ -323,9 +311,11 @@ func (g *GitSourceHandler) ResolveRef(ctx context.Context, repoURL, ref string) 
 		return "", fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 
-	// Resolve ref to commit SHA, preferring the remote-tracking ref for
-	// branch names — the fetch above updates origin/*, not local branches.
-	sha, err := g.gitClient.RevParse(ctx, repoCache, checkoutRef(ctx, g.gitClient, repoCache, ref))
+	// Resolve ref to commit SHA. Note the fetch above updates
+	// refs/remotes/origin/*, not local branches, so callers wiring this
+	// into lock generation should pass "origin/<branch>" for branch
+	// names.
+	sha, err := g.gitClient.RevParse(ctx, repoCache, ref)
 	if err != nil {
 		return "", err
 	}

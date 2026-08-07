@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
+	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 func TestRoundTrip_AllScopeKinds(t *testing.T) {
@@ -499,12 +500,39 @@ func TestMarshalKeepsLegacyPortedTeamRepoLiteral(t *testing.T) {
 	}
 }
 
-// TestParseRejectsNonSHASourceGitRef: a branch or tag ref in the
-// manifest would be copied verbatim into every consumer's lock file and
-// rejected there wholesale — so it must fail at parse time, for the
-// author, naming the asset.
-func TestParseRejectsNonSHASourceGitRef(t *testing.T) {
-	bad := `schema_version = 2
+// TestWriteRejectsNonSHASourceGitRef: a branch or tag ref would be
+// copied into every consumer's lock file and rejected there — so the
+// write path refuses it, naming the asset, before it lands on disk.
+// Parse stays permissive so a hand-authored bad ref can still be
+// repaired with sx commands.
+func TestWriteRejectsNonSHASourceGitRef(t *testing.T) {
+	bad := &Manifest{
+		SchemaVersion: 2,
+		Assets: []Asset{{
+			Name:      "my-skill",
+			Version:   "1.0.0",
+			SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: "main"},
+		}},
+	}
+	err := Write(bad, filepath.Join(t.TempDir(), "sx.toml"))
+	if err == nil {
+		t.Fatal("a branch-name source-git ref must be rejected at write time")
+	}
+	if !strings.Contains(err.Error(), "my-skill") {
+		t.Fatalf("error should name the offending asset, got: %v", err)
+	}
+
+	bad.Assets[0].SourceGit.Ref = strings.Repeat("a", 40)
+	if err := Write(bad, filepath.Join(t.TempDir(), "sx.toml")); err != nil {
+		t.Fatalf("a pinned 40-hex ref must write: %v", err)
+	}
+}
+
+// TestParseToleratesNonSHASourceGitRef: reads must stay permissive so a
+// vault with a hand-authored bad ref is repairable with sx commands
+// rather than bricked wholesale.
+func TestParseToleratesNonSHASourceGitRef(t *testing.T) {
+	data := `schema_version = 2
 
 [[assets]]
 name = "my-skill"
@@ -515,14 +543,36 @@ version = "1.0.0"
 url = "https://github.com/acme/tools"
 ref = "main"
 `
-	if _, err := Parse([]byte(bad)); err == nil {
-		t.Fatal("a branch-name source-git ref must be rejected at parse time")
-	} else if !strings.Contains(err.Error(), "my-skill") {
-		t.Fatalf("error should name the offending asset, got: %v", err)
+	if _, err := Parse([]byte(data)); err != nil {
+		t.Fatalf("Parse must tolerate a bad ref for repairability: %v", err)
 	}
+}
 
-	good := strings.Replace(bad, `ref = "main"`, `ref = "`+strings.Repeat("a", 40)+`"`, 1)
-	if _, err := Parse([]byte(good)); err != nil {
-		t.Fatalf("a pinned 40-hex ref must parse: %v", err)
+// TestResolveSkipsNonSHASourceGitRef: one hand-authored bad ref must
+// cost one asset in the resolved lock file, not fail every consumer's
+// entire install.
+func TestResolveSkipsNonSHASourceGitRef(t *testing.T) {
+	m := &Manifest{
+		SchemaVersion: 2,
+		Assets: []Asset{
+			{
+				Name:      "bad-ref",
+				Version:   "1.0.0",
+				SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: "main"},
+			},
+			{
+				Name:      "good-ref",
+				Version:   "1.0.0",
+				SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: strings.Repeat("b", 40)},
+			},
+		},
+	}
+	lf := Resolve(m, mgmt.Actor{})
+	names := make([]string, 0, len(lf.Assets))
+	for _, a := range lf.Assets {
+		names = append(names, a.Name)
+	}
+	if len(lf.Assets) != 1 || lf.Assets[0].Name != "good-ref" {
+		t.Fatalf("resolve should drop only the bad-ref asset, got %v", names)
 	}
 }

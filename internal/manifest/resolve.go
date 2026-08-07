@@ -5,6 +5,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/mgmt"
 	"github.com/sleuth-io/sx/v2/internal/scope"
 )
@@ -90,6 +91,15 @@ func Resolve(m *Manifest, actor mgmt.Actor) *lockfile.LockFile {
 		// reads them from the vault directly, so the lock (which exists
 		// to drive client installs) excludes them entirely.
 		if src.Type.Key == asset.TypeAppPlugin.Key {
+			continue
+		}
+		// A source-git ref that isn't a pinned SHA cannot pass lock-file
+		// validation; shipping it would fail the consumer's entire
+		// install. Drop just this asset and warn, so one hand-authored
+		// bad ref costs one asset rather than the whole vault.
+		if src.SourceGit != nil && !isFullCommitSHA(src.SourceGit.Ref) {
+			logger.Get().Warn("skipping asset with non-SHA source-git ref",
+				"asset", src.Name, "ref", src.SourceGit.Ref)
 			continue
 		}
 		dst := lockfile.Asset{
