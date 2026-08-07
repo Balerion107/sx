@@ -121,10 +121,13 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			wantOutputs: []string{"sx profile activate"},
 		},
 		{
-			name:        "inactive profile matching this vault exits 0",
+			// A match in an inactive profile is NOT success: sx install
+			// only loads active profiles, so exiting 0 here would be the
+			// silent-nothing outcome the check exists to prevent.
+			name:        "inactive profile matching this vault exits 1 with activate guidance",
 			configJSON:  multiProfileConfig("https://github.com/acme/other", "git@github.com:acme/vault.git"),
-			wantExit:    0,
-			wantOutputs: []string{"already configured for this vault"},
+			wantExit:    1,
+			wantOutputs: []string{"not active", "sx profile activate"},
 		},
 		{
 			name:       "no profile matches lists every configured vault",

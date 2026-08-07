@@ -66,12 +66,26 @@ normalize_vault_url() {
 # vault's config.
 if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
     VAULT_URL_NORM="$(normalize_vault_url "$VAULT_URL")"
+    # The top-level repositoryUrl (exactly two spaces of indent in sx's
+    # pretty-printed config) is the ACTIVE profile's URL; profile blocks
+    # are indented deeper. Only an active match is success — a matching
+    # profile that isn't active still installs nothing, so it must say
+    # so rather than green-check.
+    ACTIVE_URL="$(grep -E '^  "repositoryUrl"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)".*#\1#' | head -1 || true)"
+    if [ -n "$ACTIVE_URL" ] && [ "$(normalize_vault_url "$ACTIVE_URL")" = "$VAULT_URL_NORM" ]; then
+        echo "✓ sx CLI is already configured for this vault"
+        exit 0
+    fi
     CONFIGURED_URLS="$(grep -o '"repositoryUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)"#\1#' || true)"
     while IFS= read -r configured_url; do
         [ -n "$configured_url" ] || continue
         if [ "$(normalize_vault_url "$configured_url")" = "$VAULT_URL_NORM" ]; then
-            echo "✓ sx CLI is already configured for this vault"
-            exit 0
+            echo "sx CLI has a profile for this vault, but it is not active,"
+            echo "so 'sx install' will not install this vault's assets."
+            echo "Activate it with:"
+            echo "  sx profile list"
+            echo "  sx profile activate <name>"
+            exit 1
         fi
     done <<EOF
 $CONFIGURED_URLS
