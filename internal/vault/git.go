@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/gofrs/flock"
 
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/git"
@@ -39,6 +42,16 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cache path: %w", err)
 	}
+
+	// The cache dir is keyed by URL alone, so every asset from the same
+	// repo shares one clone/checkout. Hold the lock for the whole fetch:
+	// checkout mutates the shared working tree, so even the read below
+	// must not overlap a concurrent checkout of a different ref.
+	fileLock, err := acquireRepoCacheLock(ctx, repoCache)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire repo lock: %w", err)
+	}
+	defer func() { _ = fileLock.Unlock() }()
 
 	// Clone or update repository
 	if err := g.cloneOrUpdate(ctx, source.URL, repoCache); err != nil {
@@ -112,11 +125,45 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	return nil, fmt.Errorf("no zip files or exploded asset directory found in %s", searchDir)
 }
 
-// cloneOrUpdate clones the repository if it doesn't exist, or fetches updates if it does
+// acquireRepoCacheLock serializes access to a URL-keyed git cache
+// directory across goroutines and processes. It uses the same lock file
+// convention as GitVault.acquireFileLock (<cache dir>.lock alongside the
+// clone), so vault-level and source-git operations on the same repo
+// queue on the same lock.
+func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, error) {
+	lockFile := repoPath + ".lock"
+
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create lock directory: %w", err)
+	}
+
+	fileLock := flock.New(lockFile)
+
+	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire file lock: %w", err)
+	}
+	if !locked {
+		return nil, errors.New("could not acquire file lock (timeout)")
+	}
+
+	return fileLock, nil
+}
+
+// cloneOrUpdate clones the repository if it doesn't exist, or fetches updates if it does.
+// Callers must hold the repo cache lock (see acquireRepoCacheLock).
 func (g *GitSourceHandler) cloneOrUpdate(ctx context.Context, repoURL, repoPath string) error {
 	if utils.IsDirectory(filepath.Join(repoPath, ".git")) {
 		// Repository exists, fetch updates
 		return g.fetch(ctx, repoPath)
+	}
+
+	// A directory without .git is a remnant of an interrupted clone;
+	// git refuses to clone into a non-empty directory, so clear it.
+	if utils.IsDirectory(repoPath) {
+		if err := os.RemoveAll(repoPath); err != nil {
+			return fmt.Errorf("failed to remove stale cache directory: %w", err)
+		}
 	}
 
 	// Repository doesn't exist, clone it
@@ -166,6 +213,13 @@ func (g *GitSourceHandler) ResolveRef(ctx context.Context, repoURL, ref string) 
 	if err != nil {
 		return "", fmt.Errorf("failed to get cache path: %w", err)
 	}
+
+	// Serialize with concurrent fetches sharing this cache directory
+	fileLock, err := acquireRepoCacheLock(ctx, repoCache)
+	if err != nil {
+		return "", fmt.Errorf("failed to acquire repo lock: %w", err)
+	}
+	defer func() { _ = fileLock.Unlock() }()
 
 	// Clone or update repository
 	if err := g.cloneOrUpdate(ctx, repoURL, repoCache); err != nil {
