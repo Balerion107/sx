@@ -111,16 +111,28 @@ func candidates() []string {
 
 	if exe, err := executable(); err == nil {
 		// Resolve symlinks so a shim in ~/.local/bin does not hide the real
-		// layout, but keep the original path when it cannot be resolved.
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = resolved
+		// layout, but keep the original path when it cannot be resolved. The
+		// resolved path is used only for layout detection below — never as the
+		// path that gets written.
+		resolved := exe
+		if r, err := filepath.EvalSymlinks(exe); err == nil {
+			resolved = r
 		}
-		dir := filepath.Dir(exe)
 
-		// Already running as the CLI.
+		// Already running as the CLI. Prefer the invocation path over the
+		// resolved one: package managers that version their install directory
+		// expose a stable symlink (Homebrew's /opt/homebrew/bin/sx points into
+		// Cellar/sx/<version>/), and writing the resolved target into a hook
+		// leaves the hook pointing at a directory the next upgrade deletes.
 		if filepath.Base(exe) == binaryName() {
 			out = append(out, exe)
+		} else if filepath.Base(resolved) == binaryName() {
+			// Invoked through a differently-named symlink ("skills" -> sx):
+			// only the resolved path is recognizably the CLI.
+			out = append(out, resolved)
 		}
+
+		dir := filepath.Dir(resolved)
 
 		// macOS: .../sx.app/Contents/MacOS/sx-app -> .../Contents/Resources/sx
 		if filepath.Base(dir) == "MacOS" {

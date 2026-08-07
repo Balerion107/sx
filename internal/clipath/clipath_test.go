@@ -128,6 +128,64 @@ func TestResolveUsesRunningCLI(t *testing.T) {
 	}
 }
 
+// A Homebrew-style install exposes a stable symlink (bin/sx) into a versioned
+// directory (Cellar/sx/<version>/bin/sx) that upgrades delete. The invocation
+// path must be what Resolve returns, or every hook written from it dies on the
+// next upgrade (issue #222).
+func TestResolveKeepsInvocationSymlinkPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	target := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", binaryName())
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, link)
+	stubInstallDirs(t, nil)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != link {
+		t.Fatalf("Resolve = %q, want stable symlink %q, not the versioned target", got, link)
+	}
+}
+
+// A symlink whose name is not the CLI's ("skills" -> sx) is only recognizable
+// as the CLI after resolution, so the resolved path is used there.
+func TestResolveDifferentlyNamedSymlinkFallsBackToTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	target := writeFakeCLI(t, filepath.Join(root, "real"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", "skills")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, link)
+	stubInstallDirs(t, nil)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != target {
+		t.Fatalf("Resolve = %q, want resolved target %q", got, target)
+	}
+}
+
 func TestCommandQuotesPathsWithSpaces(t *testing.T) {
 	dir := filepath.Join(tempRoot(t), "Application Support")
 	path := writeFakeCLI(t, dir, binaryName())
