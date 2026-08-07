@@ -354,6 +354,7 @@ See LICENSE file for details.
 - [Profiles](docs/profiles.md) - Multiple configuration profiles
 - [Clients](docs/clients.md) - Client support model and IDE vs CLI limitations
 - [Cloud relay](docs/cloud-relay.md) - Expose your vault to claude.ai and chatgpt.com via skills.new
+- [Environment Variables](docs/environment-variables.md) - SX_CONFIG_DIR, SX_CACHE_DIR, and sandbox recipes
 - [Library](docs/library.md) - Use sx as a Go library via the `pkg/sxvault` public API
 
 

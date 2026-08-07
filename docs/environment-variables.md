@@ -7,8 +7,11 @@ demo recordings, or any sandbox.
 
 Note their scope: these variables isolate **sx's own state only**.
 Client install targets (`~/.claude`, `~/.codex`, …) are derived from
-the home directory, so fully sandboxing `sx install` also requires
-overriding `$HOME` — see the recipe below.
+the home directory, and repo-scoped clients (GitHub Copilot's
+`.github/hooks/`, Kiro's `.kiro/hooks/`) write into the **current
+repository's working tree** — so fully sandboxing `sx install` also
+requires overriding `$HOME` and running from a scratch directory. See
+the recipe below.
 
 ## State-relocating variables
 
@@ -57,6 +60,7 @@ export SX_CONFIG_DIR="$SANDBOX/config"
 export SX_CACHE_DIR="$SANDBOX/cache"
 export DISABLE_AUTOUPDATER=1         # no background binary replacement
 mkdir -p "$HOME"
+cd "$HOME"   # repo-scoped clients write into the current repo's working tree
 
 sx init --type git --repo-url "$VAULT_URL"
 sx install

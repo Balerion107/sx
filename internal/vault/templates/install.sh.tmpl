@@ -3,7 +3,9 @@ set -e
 
 # Auto-generated install script for sx asset vault
 # This script ensures the sx CLI is installed and configured.
-# Safe to run multiple times (idempotent).
+# Idempotent for this vault: re-running when already configured for it
+# is a no-op (exit 0). Exits non-zero when sx is configured for a
+# DIFFERENT vault, with instructions to add this one as a profile.
 # Template version: {{.TEMPLATE_VERSION}}
 
 # Resolve sx's config file location, mirroring the sx CLI's own lookup:
@@ -48,21 +50,42 @@ fi
 # The asset vault URL this script configures
 VAULT_URL="{{.REPO_URL}}"
 
+# Normalize a vault URL for comparison: strip a trailing .git and
+# rewrite the ssh form (git@host:path) to the https form, so equivalent
+# spellings of the same repository compare equal.
+normalize_vault_url() {
+    printf '%s' "$1" | sed -E -e 's#\.git$##' -e 's#^git@([^:]+):#https://\1/#'
+}
+
 # Check if already configured for THIS vault. config.json stores every
-# profile's repositoryUrl, so a plain match covers all profiles. Mere
-# existence of the file is not enough: being configured for a different
-# vault must not read as success, and running sx init here would
-# silently overwrite that other vault's config.
-if [ -f "$SX_CONFIG_FILE" ]; then
-    if grep -qF "$VAULT_URL" "$SX_CONFIG_FILE"; then
-        echo "✓ sx CLI is already configured for this vault"
-        exit 0
-    fi
+# profile's repositoryUrl; compare each full value (normalized), never a
+# substring — a substring match would call a repo that merely shares a
+# prefix "already configured". Mere existence of the file is not enough
+# either: being configured for a different vault must not read as
+# success, and running sx init here would silently overwrite that other
+# vault's config.
+if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
+    VAULT_URL_NORM="$(normalize_vault_url "$VAULT_URL")"
+    CONFIGURED_URLS="$(grep -o '"repositoryUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)"#\1#' || true)"
+    while IFS= read -r configured_url; do
+        [ -n "$configured_url" ] || continue
+        if [ "$(normalize_vault_url "$configured_url")" = "$VAULT_URL_NORM" ]; then
+            echo "✓ sx CLI is already configured for this vault"
+            exit 0
+        fi
+    done <<EOF
+$CONFIGURED_URLS
+EOF
     echo "sx CLI is already configured, but for a different vault:"
-    grep -o '"repositoryUrl"[^,}]*' "$SX_CONFIG_FILE" | head -5 || true
+    # Strip userinfo (user:token@) so credential-bearing URLs never land
+    # in logs.
+    printf '%s\n' "$CONFIGURED_URLS" | sed -E 's#://[^/@]+@#://#' | head -5
     echo
     echo "To add this vault as a separate profile, run:"
     echo "  SX_PROFILE=<name> sx init --type git --repo-url \"$VAULT_URL\""
+    echo "  sx profile activate <name>"
+    echo
+    echo "See docs/profiles.md in the sx repository for details."
     exit 1
 fi
 
