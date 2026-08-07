@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -102,8 +103,8 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 
 			exit := 0
 			if err != nil {
-				ee, ok := err.(*exec.ExitError)
-				if !ok {
+				var ee *exec.ExitError
+				if !errors.As(err, &ee) {
 					t.Fatalf("failed to run script: %v\n%s", err, out)
 				}
 				exit = ee.ExitCode()
