@@ -35,11 +35,16 @@ func tempRoot(t *testing.T) string {
 }
 
 // stubExecutable makes the package believe it is running as the given binary.
+// Resolve memoizes, so the cache resets with the stub and again on cleanup.
 func stubExecutable(t *testing.T, path string) {
 	t.Helper()
 	prev := executable
 	executable = func() (string, error) { return path, nil }
-	t.Cleanup(func() { executable = prev })
+	resetResolveCache()
+	t.Cleanup(func() {
+		executable = prev
+		resetResolveCache()
+	})
 }
 
 // stubInstallDirs isolates the search from whatever the host machine has in
@@ -48,7 +53,11 @@ func stubInstallDirs(t *testing.T, dirs []string) {
 	t.Helper()
 	prev := installDirs
 	installDirs = func() []string { return dirs }
-	t.Cleanup(func() { installDirs = prev })
+	resetResolveCache()
+	t.Cleanup(func() {
+		installDirs = prev
+		resetResolveCache()
+	})
 }
 
 func TestResolvePrefersEnvOverride(t *testing.T) {
@@ -138,6 +147,7 @@ func TestResolveKeepsInvocationSymlinkPath(t *testing.T) {
 	}
 	t.Setenv(EnvOverride, "")
 	root := tempRoot(t)
+	t.Setenv("PATH", root) // keep the host's own sx out of the probe
 	target := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -155,6 +165,66 @@ func TestResolveKeepsInvocationSymlinkPath(t *testing.T) {
 	}
 	if got != link {
 		t.Fatalf("Resolve = %q, want stable symlink %q, not the versioned target", got, link)
+	}
+}
+
+// The Linuxbrew prefix is not in installDirs and a GUI-launched client
+// has no useful PATH, so the stable spelling must be derivable from the
+// Cellar path alone.
+func TestResolveDerivesBrewPrefixWithoutPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	prefix := filepath.Join(root, ".linuxbrew")
+	target := writeFakeCLI(t, filepath.Join(prefix, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(prefix, "bin", binaryName())
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, target)
+	stubInstallDirs(t, nil)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != link {
+		t.Fatalf("Resolve = %q, want brew-prefix alias %q", got, link)
+	}
+}
+
+// The same-binary upgrade must be one-directional: a spelling that is
+// not itself fragile is never traded for whatever Resolve currently
+// says, even when both name the same binary.
+func TestShouldRewriteIsOneDirectional(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	real := writeFakeCLI(t, filepath.Join(root, "real"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", binaryName())
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	// Resolve() sees the real path; the recorded entry is the symlink.
+	// They name the same binary and differ in spelling, but the recorded
+	// spelling has no stabler alias — so no rewrite.
+	stubExecutable(t, real)
+	stubInstallDirs(t, nil)
+
+	if ShouldRewrite(link + " install --hook-mode") {
+		t.Fatal("a spelling with no stabler alias must not be rewritten")
 	}
 }
 
@@ -404,7 +474,11 @@ func stubGOOS(t *testing.T, name string) {
 	t.Helper()
 	prev := goos
 	goos = name
-	t.Cleanup(func() { goos = prev })
+	resetResolveCache()
+	t.Cleanup(func() {
+		goos = prev
+		resetResolveCache()
+	})
 }
 
 // A Windows path is full of backslashes; quoting on that alone produced hook

@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // ErrNotFound means no sx CLI could be located. Callers should degrade rather
@@ -66,15 +67,54 @@ var legacyBinaryNames = []string{"sx", "sx.exe", "skills", "skills.exe"}
 // stays forward-only.
 //
 // It is not a global guarantee. Running your own `sx install` from a terminal
-// bakes *that* CLI's path in, which is the least surprising outcome — the CLI
-// you invoked is the one that gets recorded — but it does mean alternating
-// between a terminal install and an app install rewrites the stored path each
-// way. Both paths work; only the version they pin differs. SX_CLI_PATH
-// overrides all of it.
+// bakes *that* CLI's path in — more precisely, the most stable known spelling
+// of the binary you invoked (a versioned Homebrew Cellar target is recorded
+// as the stable bin/ symlink that points at it, never the Cellar path an
+// upgrade deletes). Alternating between a terminal install and an app install
+// still rewrites the stored path each way. Both paths work; only the version
+// they pin differs. SX_CLI_PATH overrides all of it.
 //
 // This only decides what goes into hook and MCP configuration. What happens
 // when the user types "sx" in a terminal is their shell's PATH, untouched.
+//
+// The result is memoized for the process lifetime: Managed and friends call
+// this once per config entry they inspect, and the probe work (PATH lookups,
+// stats, symlink resolution) is not free.
 func Resolve() (string, error) {
+	// The override stays outside the memoized path: it is one env read,
+	// and callers may set or change it between calls.
+	if override := strings.TrimSpace(os.Getenv(EnvOverride)); override != "" && isExecutableFile(override) {
+		if abs, err := filepath.Abs(override); err == nil {
+			return abs, nil
+		}
+		return override, nil
+	}
+	resolveCache.Lock()
+	defer resolveCache.Unlock()
+	if !resolveCache.done {
+		resolveCache.path, resolveCache.err = resolve()
+		resolveCache.done = true
+	}
+	return resolveCache.path, resolveCache.err
+}
+
+var resolveCache struct {
+	sync.Mutex
+	done bool
+	path string
+	err  error
+}
+
+// resetResolveCache clears the memoized Resolve result. Tests re-stub the
+// executable/installDirs seams and change env vars, so the stub helpers call
+// this on both stub and cleanup.
+func resetResolveCache() {
+	resolveCache.Lock()
+	defer resolveCache.Unlock()
+	resolveCache.done = false
+}
+
+func resolve() (string, error) {
 	for _, candidate := range candidates() {
 		if isExecutableFile(candidate) {
 			if abs, err := filepath.Abs(candidate); err == nil {
@@ -86,7 +126,7 @@ func Resolve() (string, error) {
 	// PATH before the guessed install directories: PATH reflects what the user
 	// actually set up, while installDirs is a last-ditch guess for the
 	// GUI-launched case where PATH is launchd's minimal set.
-	if p, err := exec.LookPath("sx"); err == nil {
+	if p, err := exec.LookPath(binaryName()); err == nil {
 		if abs, err := filepath.Abs(p); err == nil {
 			return abs, nil
 		}
@@ -127,19 +167,26 @@ func candidates() []string {
 		// upgrade deletes. On macOS the invocation path preserves that
 		// symlink, but Linux (/proc/self/exe) and Windows hand back the
 		// already-resolved target no matter how the process was invoked — so
-		// also probe the stable locations for an alias of this same binary.
+		// when the known path is not itself a stable spelling, probe the
+		// stable locations for an alias of this same binary. An
+		// already-stable invocation path is kept as-is: a user shim earlier
+		// on PATH must not displace the spelling that was actually invoked.
 		// Comparisons use normalizedBase: the CLI may be invoked as "SX" on a
 		// case-insensitive filesystem.
 		if normalizedBase(exe) == binaryName() {
-			if alias := stableAlias(exe); alias != "" {
-				out = append(out, alias)
+			if !isStableSpelling(exe) {
+				if alias := stableAlias(exe); alias != "" {
+					out = append(out, alias)
+				}
 			}
 			out = append(out, exe)
 		} else if normalizedBase(resolved) == binaryName() {
 			// Invoked through a differently-named symlink ("skills" -> sx):
 			// only the resolved path is recognizably the CLI.
-			if alias := stableAlias(resolved); alias != "" {
-				out = append(out, alias)
+			if !isStableSpelling(resolved) {
+				if alias := stableAlias(resolved); alias != "" {
+					out = append(out, alias)
+				}
 			}
 			out = append(out, resolved)
 		}
@@ -157,10 +204,17 @@ func candidates() []string {
 	return out
 }
 
-// stableAlias looks for a stable path — PATH, then the installer
-// directories — that resolves to the same binary as target, and returns
-// it, or "" when none exists. It never returns target's own spelling,
-// so callers can append it as a strictly-preferred candidate.
+// stableAlias looks for a stable path that names the same binary as
+// target, and returns it, or "" when none exists. It never returns
+// target's own spelling, so callers can append it as a strictly-preferred
+// candidate.
+//
+// Probe order matters. A Homebrew Cellar target names its own stable
+// prefix, so that alias is derived directly from the path and cannot
+// depend on PATH — GUI-launched clients run hooks under launchd's
+// minimal PATH, where a LookPath-only probe would fail and the hook
+// would be rewritten back to the fragile versioned path. PATH and the
+// installer directories are consulted after.
 func stableAlias(target string) string {
 	canon, err := filepath.EvalSymlinks(target)
 	if err != nil {
@@ -168,6 +222,9 @@ func stableAlias(target string) string {
 	}
 
 	var probes []string
+	if alias := brewCellarAlias(canon); alias != "" {
+		probes = append(probes, alias)
+	}
 	if p, err := exec.LookPath(binaryName()); err == nil {
 		probes = append(probes, p)
 	}
@@ -179,8 +236,9 @@ func stableAlias(target string) string {
 		if !isExecutableFile(p) {
 			continue
 		}
-		r, err := filepath.EvalSymlinks(p)
-		if err != nil || !samePath(r, canon) {
+		// Identity, not spelling: stat follows symlinks, and os.SameFile
+		// sidesteps case differences on case-insensitive filesystems.
+		if !sameFile(p, canon) {
 			continue
 		}
 		if abs, err := filepath.Abs(p); err == nil {
@@ -195,14 +253,65 @@ func stableAlias(target string) string {
 	return ""
 }
 
+// brewCellarAlias derives the stable bin path a Homebrew-style Cellar
+// target implies: /opt/homebrew/Cellar/sx/2.3.1/bin/sx names
+// /opt/homebrew/bin/sx. Works for any prefix — /usr/local,
+// /home/linuxbrew/.linuxbrew, a custom --prefix — with one rule and no
+// PATH dependency. Returns "" for non-Cellar paths.
+func brewCellarAlias(canon string) string {
+	idx := strings.Index(filepath.ToSlash(canon), "/Cellar/")
+	if idx < 0 {
+		return ""
+	}
+	return filepath.Join(canon[:idx], "bin", binaryName())
+}
+
+// isStableSpelling reports whether path already lives somewhere durable:
+// a PATH directory or an installer directory, and not inside a versioned
+// Cellar tree. Such a path is kept as-is rather than traded for whatever
+// alias happens to probe first.
+func isStableSpelling(path string) bool {
+	if strings.Contains(filepath.ToSlash(path), "/Cellar/") {
+		return false
+	}
+	dir := filepath.Dir(path)
+	for _, d := range installDirs() {
+		if d != "" && samePath(dir, d) {
+			return true
+		}
+	}
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if d != "" && samePath(dir, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // samePath reports whether two paths are the same spelling, honoring
-// Windows case-insensitivity. It does not resolve symlinks.
+// Windows case-insensitivity. It does not resolve symlinks; use
+// sameFile to compare identity.
 func samePath(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if goos == "windows" {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
+}
+
+// sameFile reports whether two paths name the same file on disk. Stat
+// follows symlinks, so this compares final targets and is immune to
+// case and separator differences string comparison would trip on.
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
 }
 
 // installDirs are where sx's own installers put the CLI. A GUI-launched client
@@ -215,9 +324,10 @@ var installDirs = func() []string {
 		}
 		return nil
 	}
-	dirs := []string{"/usr/local/bin", "/opt/homebrew/bin"}
+	dirs := []string{"/usr/local/bin", "/opt/homebrew/bin", "/home/linuxbrew/.linuxbrew/bin"}
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append([]string{filepath.Join(home, ".local", "bin")}, dirs...)
+		dirs = append(dirs, filepath.Join(home, ".linuxbrew", "bin"))
 	}
 	return dirs
 }
@@ -443,9 +553,16 @@ func ShouldRewrite(cmd string) bool {
 	if err != nil || samePath(argv0, resolved) {
 		return false
 	}
-	a, errA := filepath.EvalSymlinks(argv0)
-	b, errB := filepath.EvalSymlinks(resolved)
-	return errA == nil && errB == nil && samePath(a, b)
+	// One-directional on purpose: only a spelling that is itself fragile
+	// and has a stabler alias gets upgraded. Without this the branch
+	// would adopt whatever Resolve currently says in either direction —
+	// downgrading a stable entry to a versioned Cellar path when a
+	// GUI-launched client's minimal PATH skews resolution, or flapping
+	// between two equally stable aliases with PATH order.
+	if isStableSpelling(argv0) || stableAlias(argv0) == "" {
+		return false
+	}
+	return sameFile(argv0, resolved)
 }
 
 // MCPEntryNeedsRewrite reports whether an existing MCP server entry should be
