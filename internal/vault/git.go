@@ -14,6 +14,7 @@ import (
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/git"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 	"github.com/sleuth-io/sx/v2/internal/utils"
 )
 
@@ -53,9 +54,10 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	// Refs are pinned 40-char SHAs, so once one fetch has brought the
-	// commit into the shared cache, the queued fetches behind it (and any
-	// later install) can skip the network round-trip entirely.
+	// When the ref is a pinned SHA already in the shared cache, skip the
+	// network round-trip: once one fetch has brought the commit in, the
+	// queued fetches behind it (and any later install) reuse it. Branch
+	// and tag refs are mutable, so they always fetch.
 	if !isFullSHA(source.Ref) || !g.gitClient.HasCommit(ctx, repoCache, source.Ref) {
 		if err := g.cloneOrUpdate(ctx, source.URL, repoCache); err != nil {
 			return nil, fmt.Errorf("failed to clone/update repository: %w", err)
@@ -64,7 +66,19 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 
 	// Checkout the specific commit
 	if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
-		return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+		// The object store can be damaged even when .git is intact (an
+		// interrupted transfer), which cloneOrUpdate cannot detect.
+		// Discard the cache and retry once with a fresh clone; a ref
+		// that genuinely doesn't exist just fails again.
+		if rmErr := os.RemoveAll(repoCache); rmErr != nil {
+			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+		}
+		if cloneErr := g.clone(ctx, source.URL, repoCache); cloneErr != nil {
+			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+		}
+		if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
+			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+		}
 	}
 
 	// Determine the directory to look for the asset
@@ -153,6 +167,15 @@ func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, e
 	}
 
 	fileLock := flock.New(lockFile)
+
+	// Grab it uncontended if possible; otherwise say so once before
+	// blocking, so a multi-minute wait on a peer's clone doesn't read as
+	// a hang.
+	if locked, err := fileLock.TryLock(); err == nil && locked {
+		return fileLock, nil
+	}
+	logger.Get().Info("waiting for another sx process to finish with this repository",
+		"repo", filepath.Base(repoPath))
 
 	lockCtx, cancel := context.WithTimeout(ctx, repoCacheLockTimeout)
 	defer cancel()

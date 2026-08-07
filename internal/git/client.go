@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -363,17 +364,20 @@ func (c *Client) RevParse(ctx context.Context, repoPath, ref string) (string, er
 }
 
 // HasCommit reports whether the commit exists in the local repository,
-// without touching the network.
+// without touching the network. The repository is addressed by explicit
+// --git-dir so git's upward repository discovery can never answer about
+// an ancestor of repoPath.
 func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
-	cmd := c.command(ctx, "cat-file", "-e", sha+"^{commit}")
-	cmd.Dir = repoPath
+	cmd := c.command(ctx, "--git-dir", filepath.Join(repoPath, ".git"), "cat-file", "-e", sha+"^{commit}")
 	return cmd.Run() == nil
 }
 
 // IsRepo reports whether repoPath is a usable git repository.
+// --resolve-git-dir checks that exact path — no upward discovery, so an
+// ancestor repository (a cache dir under a dotfiles-managed $HOME, say)
+// cannot make a corrupt cache look healthy.
 func (c *Client) IsRepo(ctx context.Context, repoPath string) bool {
-	cmd := c.command(ctx, "rev-parse", "--git-dir")
-	cmd.Dir = repoPath
+	cmd := c.command(ctx, "rev-parse", "--resolve-git-dir", filepath.Join(repoPath, ".git"))
 	return cmd.Run() == nil
 }
 

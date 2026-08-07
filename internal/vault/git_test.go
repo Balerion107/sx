@@ -193,6 +193,41 @@ func TestGitSourceHandler_FetchRecoversFromStaleCacheDir(t *testing.T) {
 	}
 }
 
+// TestGitSourceHandler_CorruptCacheInsideAncestorRepo pins the
+// discovery behavior of the repo probes: when the cache directory lives
+// inside some unrelated git repository (a dotfiles-managed $HOME, a
+// hand-set SX_CACHE_DIR inside a checkout), git's upward repository
+// discovery must not make a corrupt cache look healthy — recovery has
+// to fire against the cache itself, not the ancestor.
+func TestGitSourceHandler_CorruptCacheInsideAncestorRepo(t *testing.T) {
+	// The cache root is itself a git repository.
+	ancestor := t.TempDir()
+	runGit(t, ancestor, "init")
+	runGit(t, ancestor, "config", "user.email", "alice@example.com")
+	runGit(t, ancestor, "config", "user.name", "Alice")
+	t.Setenv("SX_CACHE_DIR", ancestor)
+
+	repoURL, sha := setupSourceGitRepo(t, 1)
+
+	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	if err != nil {
+		t.Fatalf("failed to get cache path: %v", err)
+	}
+	// An interrupted clone left a .git directory git doesn't recognize.
+	if err := os.MkdirAll(filepath.Join(repoCache, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create corrupt .git dir: %v", err)
+	}
+
+	handler := NewGitSourceHandler(git.NewClient())
+	data, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, sha, "asset0"))
+	if err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if !utils.IsZipFile(data) {
+		t.Fatal("fetched data is not a valid zip")
+	}
+}
+
 // TestGitSourceHandler_FetchRecoversFromCorruptGitDir covers the other
 // interrupted-clone shape: .git exists but the repository is unusable,
 // so fetch fails and the cache must be discarded and re-cloned rather
