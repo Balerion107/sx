@@ -199,6 +199,52 @@ func TestResolveDerivesBrewPrefixWithoutPATH(t *testing.T) {
 	}
 }
 
+// The realistic Cellar migration: the recorded entry names the OLD keg,
+// which still exists (brew cleanup is deferred), while resolution now
+// yields the new version. Same-file identity can never hold there, so
+// the upgrade must key on the Cellar shape itself.
+func TestShouldRewriteUpgradesStaleCellarVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	oldKeg := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.0", "bin"), binaryName())
+	newKeg := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", binaryName())
+	if err := os.Symlink(newKeg, link); err != nil {
+		t.Fatal(err)
+	}
+	stubExecutable(t, newKeg)
+	stubInstallDirs(t, []string{filepath.Join(root, "bin")})
+
+	if !ShouldRewrite(oldKeg + " install --hook-mode") {
+		t.Fatal("an entry pinned to a still-present older keg must be upgraded")
+	}
+	if ShouldRewrite(link + " install --hook-mode") {
+		t.Fatal("the stable spelling must not be rewritten")
+	}
+}
+
+// isStableSpelling must split PATH with the goos seam's separator so the
+// Windows shape is testable from any host.
+func TestIsStableSpellingWindowsPath(t *testing.T) {
+	stubGOOS(t, "windows")
+	stubInstallDirs(t, nil)
+	t.Setenv("PATH", `C:/tools;C:/bin`)
+
+	if !isStableSpelling(`C:/tools/` + binaryName()) {
+		t.Fatal("a binary in a Windows PATH directory must count as stable")
+	}
+	if isStableSpelling(`C:/elsewhere/` + binaryName()) {
+		t.Fatal("a binary outside PATH and installDirs must not count as stable")
+	}
+}
+
 // The same-binary upgrade must be one-directional: a spelling that is
 // not itself fragile is never traded for whatever Resolve currently
 // says, even when both name the same binary.

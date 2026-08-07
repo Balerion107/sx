@@ -107,7 +107,10 @@ var resolveCache struct {
 
 // resetResolveCache clears the memoized Resolve result. Tests re-stub the
 // executable/installDirs seams and change env vars, so the stub helpers call
-// this on both stub and cleanup.
+// this on both stub and cleanup. Note the cache's inputs also include PATH —
+// a test that changes PATH between two Resolve calls must reset explicitly.
+// SX_CLI_PATH is NOT cached (checked before the cache in Resolve), so
+// changing the override mid-test needs no reset.
 func resetResolveCache() {
 	resolveCache.Lock()
 	defer resolveCache.Unlock()
@@ -280,7 +283,14 @@ func isStableSpelling(path string) bool {
 			return true
 		}
 	}
-	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+	// Split PATH with the seam's separator, not the host's
+	// (filepath.SplitList keys off the real runtime.GOOS), so
+	// Windows-shaped behavior stays testable from any host.
+	sep := ":"
+	if goos == "windows" {
+		sep = ";"
+	}
+	for d := range strings.SplitSeq(os.Getenv("PATH"), sep) {
 		if d != "" && samePath(dir, d) {
 			return true
 		}
@@ -559,7 +569,20 @@ func ShouldRewrite(cmd string) bool {
 	// downgrading a stable entry to a versioned Cellar path when a
 	// GUI-launched client's minimal PATH skews resolution, or flapping
 	// between two equally stable aliases with PATH order.
-	if isStableSpelling(argv0) || stableAlias(argv0) == "" {
+	if isStableSpelling(argv0) {
+		return false
+	}
+	// A Cellar-tree path with a live stable alias is fragile no matter
+	// which version it names. This must not require same-file identity
+	// with the current resolution: after a brew upgrade the recorded
+	// path still exists (brew cleanup is deferred) but names the OLD
+	// binary, which is exactly the entry that needs upgrading. sx never
+	// writes a Cellar path itself, so this cannot thrash against sx's
+	// own output.
+	if a := brewCellarAlias(argv0); a != "" && isExecutableFile(a) {
+		return true
+	}
+	if stableAlias(argv0) == "" {
 		return false
 	}
 	return sameFile(argv0, resolved)

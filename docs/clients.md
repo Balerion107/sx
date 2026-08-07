@@ -52,6 +52,13 @@ repo-committed hooks.
 `SX_CLI_PATH` overrides the resolved path everywhere. Detection accepts both
 forms, so upgrading between them replaces a hook rather than duplicating it.
 
+For package-manager installs, the recorded path is the stable spelling of the
+binary: Homebrew's `/opt/homebrew/bin/sx` symlink rather than the versioned
+`Cellar/sx/<version>/` target it points at, which upgrades delete. An entry
+pinned to a versioned path by an older sx — including one whose target an
+upgrade already removed — is rewritten to the stable spelling on the next
+`sx install`.
+
 ## Web clients (cloud relay)
 
 claude.ai and chatgpt.com can't read your filesystem, so sx exposes the vault as a custom MCP connector through a relay hosted at skills.new. The relay forwards JSON-RPC over a WebSocket your local `sx cloud serve` process opens — vault content stays on your machine.
