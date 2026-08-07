@@ -10,7 +10,6 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/config"
-	"github.com/sleuth-io/sx/v2/internal/git"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/metadata"
 	"github.com/sleuth-io/sx/v2/internal/utils"
@@ -34,55 +33,11 @@ func NewAssetFetcher(vault vaultpkg.Vault, vaultKey string) *AssetFetcher {
 	}
 }
 
-// diskCacheable reports whether an asset's content is immutable for its
-// declared version, and may therefore be served from the version-keyed
-// disk cache. A source-git asset pinned to a moving branch can change
-// while its locked version stays fixed — caching it would pin the
-// first-ever fetch forever, defeating the fetch that tracks the remote.
-// SHAs are immutable, and a ref that resolves to a tag in the local
-// source cache is treated as immutable too: tags are the conventional
-// release pin, and disabling the cache for them would cost a serialized
-// network fetch per asset on every install. Tradeoff: a force-moved tag
-// keeps serving cached content until the asset cache is cleared —
-// accepted, since retagging is pathological while branches (the refs
-// that legitimately move) stay uncached.
-func diskCacheable(ctx context.Context, asset *lockfile.Asset) bool {
-	if asset.SourceGit == nil {
-		return true
-	}
-	ref := asset.SourceGit.Ref
-	if isHexSHA(ref) {
-		return true
-	}
-	if srcPath, err := cache.GetGitSourceCachePath(asset.SourceGit.URL); err == nil {
-		if git.NewClient().HasRef(ctx, srcPath, "refs/tags/"+ref) {
-			return true
-		}
-	}
-	return false
-}
-
-func isHexSHA(ref string) bool {
-	if len(ref) != 40 {
-		return false
-	}
-	for _, c := range ref {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return false
-		}
-	}
-	return true
-}
-
 // FetchAsset downloads a single asset
 func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first (mutable-ref assets are never disk-cached)
-	cacheable := diskCacheable(ctx, asset)
-	zipData = nil
-	err = errors.New("cache skipped")
-	if cacheable {
-		zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
-	}
+	// Try disk cache first. Lock-file validation pins every source-git
+	// ref to a full commit SHA, so a cached name@version is immutable.
+	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
 	if err == nil {
 		// Cache hit, extract metadata and return
 		metadataBytes, err := utils.ReadZipFile(zipData, "metadata.toml")
@@ -123,11 +78,8 @@ func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (z
 		return nil, nil, fmt.Errorf("metadata validation failed: %w", err)
 	}
 
-	// Cache to disk for future use. Recomputed: a first-ever tag fetch
-	// finds no source clone before the download, but does after it.
-	if cacheable || diskCacheable(ctx, asset) {
-		_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
-	}
+	// Cache to disk for future use
+	_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
 	// Ignore cache save errors - not critical
 
 	return zipData, meta, nil
@@ -135,13 +87,9 @@ func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (z
 
 // FetchAssetWithProgress downloads a single asset with progress bar
 func (f *AssetFetcher) FetchAssetWithProgress(ctx context.Context, asset *lockfile.Asset, bar *progressbar.ProgressBar) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first (mutable-ref assets are never disk-cached)
-	cacheable := diskCacheable(ctx, asset)
-	zipData = nil
-	err = errors.New("cache skipped")
-	if cacheable {
-		zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
-	}
+	// Try disk cache first. Lock-file validation pins every source-git
+	// ref to a full commit SHA, so a cached name@version is immutable.
+	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
 	if err == nil {
 		// Cache hit, extract metadata and return
 		metadataBytes, err := utils.ReadZipFile(zipData, "metadata.toml")
@@ -192,11 +140,8 @@ func (f *AssetFetcher) FetchAssetWithProgress(ctx context.Context, asset *lockfi
 		return nil, nil, fmt.Errorf("metadata validation failed: %w", err)
 	}
 
-	// Cache to disk for future use. Recomputed: a first-ever tag fetch
-	// finds no source clone before the download, but does after it.
-	if cacheable || diskCacheable(ctx, asset) {
-		_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
-	}
+	// Cache to disk for future use
+	_ = cache.SaveAssetToDisk(asset.Name, asset.Version, f.vaultKey, zipData)
 	// Ignore cache save errors - not critical
 
 	return zipData, meta, nil

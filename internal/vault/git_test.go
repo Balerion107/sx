@@ -399,16 +399,26 @@ func TestGitVaultSyncHealsPartialWorktree(t *testing.T) {
 		t.Fatalf("initial sync failed: %v", err)
 	}
 
-	// Shape 1: the manifest itself is gone.
+	// Shape 1: the manifest itself is gone. The unlocked sync must NOT
+	// restore it — the heal is a destructive worktree write that would
+	// also revert a concurrent mutator's pre-stage deletions, so it is
+	// reserved for the lock-holding variant.
 	if err := os.Remove(filepath.Join(v.repoPath, "sx.toml")); err != nil {
 		t.Fatalf("failed to remove manifest: %v", err)
 	}
 	v.lastSynced = time.Time{} // bypass the sync TTL
+	if err := v.cloneOrUpdate(context.Background()); err != nil {
+		t.Fatalf("unlocked sync over partial worktree errored: %v", err)
+	}
+	if utils.FileExists(filepath.Join(v.repoPath, "sx.toml")) {
+		t.Fatal("unlocked sync must not perform the destructive restore")
+	}
+	v.lastSynced = time.Time{}
 	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
 		t.Fatalf("sync over partial worktree failed: %v", err)
 	}
 	if !utils.FileExists(filepath.Join(v.repoPath, "sx.toml")) {
-		t.Fatal("missing manifest was not restored during sync")
+		t.Fatal("missing manifest was not restored during locked sync")
 	}
 
 	// Shape 2: a non-manifest tracked file is gone (readdir order is
@@ -423,6 +433,25 @@ func TestGitVaultSyncHealsPartialWorktree(t *testing.T) {
 	}
 	if !utils.FileExists(filepath.Join(v.repoPath, "assets", "skill", "SKILL.md")) {
 		t.Fatal("missing asset file was not restored during sync")
+	}
+
+	// Negative: modified tracked files and untracked files must survive
+	// a locked sync untouched — only deletions trigger the restore.
+	if err := os.WriteFile(filepath.Join(v.repoPath, "sx.toml"), []byte("schema_version = 2\n# local edit\n"), 0644); err != nil {
+		t.Fatalf("failed to modify manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(v.repoPath, "untracked.txt"), []byte("keep me\n"), 0644); err != nil {
+		t.Fatalf("failed to write untracked file: %v", err)
+	}
+	v.lastSynced = time.Time{}
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("locked sync with local changes failed: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(v.repoPath, "sx.toml")); err != nil || !strings.Contains(string(data), "# local edit") {
+		t.Fatalf("modified tracked file was reverted (err=%v): %q", err, data)
+	}
+	if !utils.FileExists(filepath.Join(v.repoPath, "untracked.txt")) {
+		t.Fatal("untracked file was removed by the locked sync")
 	}
 }
 

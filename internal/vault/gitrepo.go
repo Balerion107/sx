@@ -350,13 +350,6 @@ func (g *GitVault) VerifyIntegrity(data []byte, hashes map[string]string, size i
 // the clone, which only lock-holding callers may do.
 var errCorruptVaultClone = errors.New("vault clone is corrupt; run a locked sync (e.g. sx install) to repair it")
 
-// errPartialVaultWorktree means tracked files are missing from the
-// vault clone's working tree (an interrupted delete). Restoring them is
-// a destructive worktree write — a force checkout would also revert
-// another process's in-flight mutation (a retire deletes files before
-// staging them) — so only lock-holding callers may repair.
-var errPartialVaultWorktree = errors.New("vault clone has a partial working tree; run a locked sync (e.g. sx install) to repair it")
-
 // cloneOrUpdateLocked is cloneOrUpdate plus destructive repair of a
 // corrupt clone or partial working tree. The caller MUST hold the vault
 // file lock: both repairs rewrite the shared directory, which must
@@ -364,21 +357,34 @@ var errPartialVaultWorktree = errors.New("vault clone has a partial working tree
 // in another process.
 func (g *GitVault) cloneOrUpdateLocked(ctx context.Context) error {
 	err := g.cloneOrUpdate(ctx)
-	switch {
-	case errors.Is(err, errCorruptVaultClone):
+	if errors.Is(err, errCorruptVaultClone) {
 		if rmErr := os.RemoveAll(g.repoPath); rmErr != nil {
 			return fmt.Errorf("failed to remove corrupt vault clone: %w", rmErr)
 		}
 		// The directory is gone now, so this takes the fresh-clone branch.
-		return g.cloneOrUpdate(ctx)
-	case errors.Is(err, errPartialVaultWorktree):
+		err = g.cloneOrUpdate(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Partial-worktree heal, probed only here: with the lock held no
+	// mutator is mid-change, so a deleted tracked file genuinely means
+	// an interrupted delete (a pull reports up-to-date and restores
+	// nothing). Unlocked reads never probe — a concurrent mutation's
+	// pre-stage deletions must neither be force-reverted nor turned
+	// into read failures; modified and untracked files never trigger
+	// the restore either way.
+	deleted, err := g.gitClient.HasDeletedWorktreeFiles(ctx, g.repoPath)
+	if err != nil {
+		return err
+	}
+	if deleted {
 		if fcErr := g.gitClient.ForceCheckout(ctx, g.repoPath, "HEAD"); fcErr != nil {
 			return fmt.Errorf("failed to restore vault working tree: %w", fcErr)
 		}
-		return g.cloneOrUpdate(ctx)
-	default:
-		return err
 	}
+	return nil
 }
 
 // cloneOrUpdate clones the repository if it doesn't exist, or pulls updates if it does.
@@ -440,21 +446,6 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 			return err
 		}
 		if !empty {
-			// A partial worktree (an interrupted repair's RemoveAll)
-			// pulls clean and restores nothing. Deletion of any tracked
-			// file is the signal — layout-agnostic, and modified or
-			// untracked files (queued usage appends) never trigger it.
-			// The restore itself is destructive (a force checkout would
-			// also revert a concurrent mutator's pre-stage deletions),
-			// so this unlocked path only reports; cloneOrUpdateLocked
-			// repairs.
-			deleted, err := g.gitClient.HasDeletedWorktreeFiles(ctx, g.repoPath)
-			if err != nil {
-				return err
-			}
-			if deleted {
-				return errPartialVaultWorktree
-			}
 			if err := g.pull(ctx); err != nil {
 				return err
 			}

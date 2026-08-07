@@ -498,3 +498,31 @@ func TestMarshalKeepsLegacyPortedTeamRepoLiteral(t *testing.T) {
 		t.Fatalf("repositories = %v, want %v (legacy row literal, cleanup only)", team.Repositories, want)
 	}
 }
+
+// TestParseRejectsNonSHASourceGitRef: a branch or tag ref in the
+// manifest would be copied verbatim into every consumer's lock file and
+// rejected there wholesale — so it must fail at parse time, for the
+// author, naming the asset.
+func TestParseRejectsNonSHASourceGitRef(t *testing.T) {
+	bad := `schema_version = 2
+
+[[assets]]
+name = "my-skill"
+type = "skill"
+version = "1.0.0"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+`
+	if _, err := Parse([]byte(bad)); err == nil {
+		t.Fatal("a branch-name source-git ref must be rejected at parse time")
+	} else if !strings.Contains(err.Error(), "my-skill") {
+		t.Fatalf("error should name the offending asset, got: %v", err)
+	}
+
+	good := strings.Replace(bad, `ref = "main"`, `ref = "`+strings.Repeat("a", 40)+`"`, 1)
+	if _, err := Parse([]byte(good)); err != nil {
+		t.Fatalf("a pinned 40-hex ref must parse: %v", err)
+	}
+}
