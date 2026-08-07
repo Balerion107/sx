@@ -364,6 +364,21 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 		if err := g.ensureUsageMergeAttributes(); err != nil {
 			return err
 		}
+	} else if !g.gitClient.IsRepo(ctx, g.repoPath) {
+		// An interrupted clone left a .git that git doesn't recognize.
+		// A corrupt clone must not masquerade as an empty vault: an
+		// "empty" sync yields no lock file, which install treats as a
+		// benign empty vault and uninstalls every asset. Discard and
+		// re-clone, mirroring GitSourceHandler.cloneOrUpdate.
+		if err := os.RemoveAll(g.repoPath); err != nil {
+			return fmt.Errorf("failed to remove corrupt vault clone: %w", err)
+		}
+		if err := g.clone(ctx); err != nil {
+			return err
+		}
+		if err := g.ensureUsageMergeAttributes(); err != nil {
+			return err
+		}
 	} else {
 		// Ensure the union-merge attribute for usage JSONL is in place
 		// BEFORE pulling: two writers appending to the same monthly

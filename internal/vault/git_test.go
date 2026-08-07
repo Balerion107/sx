@@ -172,7 +172,7 @@ func TestGitSourceHandler_FetchRecoversFromStaleCacheDir(t *testing.T) {
 	repoURL, sha := setupSourceGitRepo(t, 1)
 
 	// Simulate an interrupted clone: a non-empty cache dir with no .git
-	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
 	if err != nil {
 		t.Fatalf("failed to get cache path: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestGitSourceHandler_BadRefDoesNotDestroyCache(t *testing.T) {
 	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, sha, "asset0")); err != nil {
 		t.Fatalf("warm fetch failed: %v", err)
 	}
-	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
 	if err != nil {
 		t.Fatalf("failed to get cache path: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestGitSourceHandler_CorruptCacheInsideAncestorRepo(t *testing.T) {
 
 	repoURL, sha := setupSourceGitRepo(t, 1)
 
-	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
 	if err != nil {
 		t.Fatalf("failed to get cache path: %v", err)
 	}
@@ -278,6 +278,33 @@ func TestGitSourceHandler_CorruptCacheInsideAncestorRepo(t *testing.T) {
 	}
 }
 
+// TestGitVaultCloneOrUpdateRecoversCorruptClone: a vault clone whose
+// .git is unusable must be discarded and re-cloned, not synced as if
+// healthy — a corrupt clone that reads as an "empty vault" yields no
+// lock file, which install treats as benign and responds to by
+// uninstalling every asset from that vault.
+func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	repoURL, _ := setupSourceGitRepo(t, 1)
+
+	v, err := NewGitVault(repoURL)
+	if err != nil {
+		t.Fatalf("failed to create vault: %v", err)
+	}
+	// An interrupted clone left a .git directory git doesn't recognize.
+	if err := os.MkdirAll(filepath.Join(v.repoPath, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create corrupt .git: %v", err)
+	}
+
+	if err := v.cloneOrUpdate(context.Background()); err != nil {
+		t.Fatalf("cloneOrUpdate failed: %v", err)
+	}
+	if !v.gitClient.IsRepo(context.Background(), v.repoPath) {
+		t.Fatal("corrupt vault clone was not re-cloned")
+	}
+}
+
 // TestGitSourceHandler_FetchRecoversFromCorruptGitDir covers the other
 // interrupted-clone shape: .git exists but the repository is unusable,
 // so fetch fails and the cache must be discarded and re-cloned rather
@@ -287,7 +314,7 @@ func TestGitSourceHandler_FetchRecoversFromCorruptGitDir(t *testing.T) {
 
 	repoURL, sha := setupSourceGitRepo(t, 1)
 
-	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
 	if err != nil {
 		t.Fatalf("failed to get cache path: %v", err)
 	}

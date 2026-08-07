@@ -39,7 +39,7 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	source := asset.SourceGit
 
 	// Get cache path for this repository
-	repoCache, err := cache.GetGitRepoCachePath(source.URL)
+	repoCache, err := cache.GetGitSourceCachePath(source.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cache path: %w", err)
 	}
@@ -155,11 +155,12 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 const repoCacheLockTimeout = 10 * time.Minute
 
 // acquireRepoCacheLock serializes access to a URL-keyed git cache
-// directory across goroutines and processes. GitVault.acquireFileLock
-// delegates here, so the locked vault operations (GetLockFile, AddAsset,
-// path-source GetAsset) and source-git fetches of the same repo queue on
-// the same lock; vault read paths that sync without locking are not
-// covered.
+// directory across goroutines and processes; the lock file sits next to
+// the directory it guards. GitVault.acquireFileLock delegates here for
+// vault clones, and source-git fetches use it for their own cache
+// namespace — vault and source-git clones of the same URL are separate
+// directories (see cache.GetGitSourceCachePath), so they neither share
+// state nor contend.
 //
 // flock is not re-entrant: two flock.Flock instances conflict even in
 // one process, so a caller already holding this repo's lock must not
@@ -288,7 +289,7 @@ func (g *GitSourceHandler) findZipFiles(dir string) ([]string, error) {
 // not re-entrant, and nesting would stall until the lock timeout.
 func (g *GitSourceHandler) ResolveRef(ctx context.Context, repoURL, ref string) (string, error) {
 	// Get cache path for this repository
-	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	repoCache, err := cache.GetGitSourceCachePath(repoURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cache path: %w", err)
 	}

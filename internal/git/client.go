@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -186,19 +187,43 @@ func (c *Client) Fetch(ctx context.Context, repoPath string) error {
 	return nil
 }
 
+// repoSelectingEnv are variables that select a repository before any
+// discovery happens. Git exports them to hook processes and to
+// rebase/bisect helpers, so an sx invoked from inside a git hook
+// inherits them — and an inherited GIT_DIR outranks both cmd.Dir and
+// GIT_CEILING_DIRECTORIES, silently redirecting a cache-directed
+// command at the caller's own repository. Filtered out rather than set
+// to empty: git's "unset vs empty" semantics differ by version (the
+// same reasoning documented for GIT_ASKPASS in command.go).
+var repoSelectingEnv = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"}
+
 // commandInRepo builds a git command that runs inside repoPath and can
-// never escape it: GIT_CEILING_DIRECTORIES stops repository discovery
-// at the parent, so a directory whose .git is unusable errors out
-// instead of resolving to an enclosing repository (a dotfiles-managed
-// $HOME, a hand-set SX_CACHE_DIR inside a checkout) and reading or
-// mutating it. Every command addressed at a repo root must use this
-// rather than setting cmd.Dir directly, so the guard cannot be missed
-// one method at a time.
+// never escape it: inherited repo-selecting variables are stripped, and
+// GIT_CEILING_DIRECTORIES stops repository discovery at the parent, so
+// a directory whose .git is unusable errors out instead of resolving to
+// an enclosing repository (a dotfiles-managed $HOME, a hand-set
+// SX_CACHE_DIR inside a checkout) and reading or mutating it. Every
+// command addressed at a repo root must use this rather than setting
+// cmd.Dir directly, so the guard cannot be missed one method at a time.
 func (c *Client) commandInRepo(ctx context.Context, repoPath string, args ...string) *exec.Cmd {
 	cmd := c.command(ctx, args...)
 	cmd.Dir = repoPath
+	cmd.Env = withoutEnv(cmd.Env, repoSelectingEnv)
 	cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(repoPath))
 	return cmd
+}
+
+// withoutEnv returns env with every entry whose name is in names removed.
+func withoutEnv(env []string, names []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(names, name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // Reset runs `git reset --<mode> <ref>` in repoPath. Used by vault-clone
@@ -506,6 +531,13 @@ func (c *Client) Commit(ctx context.Context, repoPath, message string) error {
 
 // IsEmpty checks if a repository has no commits (e.g., freshly cloned empty repo)
 func (c *Client) IsEmpty(ctx context.Context, repoPath string) (bool, error) {
+	// "not a git repository" also exits 128, and a broken repository
+	// must not masquerade as an empty one — callers skip work for empty
+	// repos that they must instead repair for broken ones.
+	if !c.IsRepo(ctx, repoPath) {
+		return false, fmt.Errorf("not a git repository: %s", repoPath)
+	}
+
 	cmd := c.commandInRepo(ctx, repoPath, "rev-parse", "HEAD")
 
 	err := cmd.Run()

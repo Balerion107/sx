@@ -155,6 +155,22 @@ func GetGitRepoCachePath(repoURL string) (string, error) {
 	return filepath.Join(gitReposDir, urlHash), nil
 }
 
+// GetGitSourceCachePath returns the cache path for a git repository
+// fetched as a source-git asset source. Deliberately a different
+// namespace than GetGitRepoCachePath: when the same URL is used both as
+// a vault and as an asset source, the two must not share a working tree
+// — source-git fetches check out pinned SHAs (leaving a detached HEAD)
+// while vault syncs pull on a branch, and each would corrupt the
+// other's state.
+func GetGitSourceCachePath(repoURL string) (string, error) {
+	gitReposDir, err := GetGitReposCacheDir()
+	if err != nil {
+		return "", err
+	}
+	urlHash := utils.URLHash(repoURL)
+	return filepath.Join(gitReposDir, "src", urlHash), nil
+}
+
 // ClearAssetCache removes cached assets for cleanup
 func ClearAssetCache() error {
 	assetCacheDir, err := GetAssetCacheDir()

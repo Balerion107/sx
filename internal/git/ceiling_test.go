@@ -62,4 +62,19 @@ func TestRepoCommandsDoNotEscapeToAncestor(t *testing.T) {
 	if status := run(ancestor, "status", "--porcelain", "f.txt"); status != "" {
 		t.Fatalf("ancestor working tree dirtied: %q", status)
 	}
+
+	// Git exports GIT_DIR to hook processes and rebase/bisect helpers,
+	// and GIT_DIR outranks discovery entirely — so an sx run from inside
+	// a git hook must not have its cache commands redirected at the
+	// hook's repository.
+	t.Setenv("GIT_DIR", filepath.Join(ancestor, ".git"))
+	if err := client.Checkout(ctx, cache, ancestorSHA); err == nil {
+		t.Fatal("Checkout honored an inherited GIT_DIR")
+	}
+	if err := client.Fetch(ctx, cache); err == nil {
+		t.Fatal("Fetch honored an inherited GIT_DIR")
+	}
+	if got := run(ancestor, "rev-parse", "HEAD"); got != ancestorSHA {
+		t.Fatalf("ancestor HEAD changed via GIT_DIR: %q -> %q", ancestorSHA, got)
+	}
 }
