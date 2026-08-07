@@ -77,15 +77,17 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			},
 		})
 	}
-	multiProfileConfig := func(activeURL, otherURL string) string {
+	// defaultURL belongs to profile "other" (the default); workURL to
+	// profile "work". activeProfiles controls which are active.
+	multiProfileConfig := func(activeProfiles []string, defaultURL, workURL string) string {
 		return marshal(testConfig{
 			DefaultProfile: "other",
-			ActiveProfiles: []string{"other"},
+			ActiveProfiles: activeProfiles,
 			Type:           "git",
-			RepositoryURL:  activeURL,
+			RepositoryURL:  defaultURL,
 			Profiles: map[string]testProfile{
-				"other": {Type: "git", RepositoryURL: activeURL},
-				"work":  {Type: "git", RepositoryURL: otherURL},
+				"other": {Type: "git", RepositoryURL: defaultURL},
+				"work":  {Type: "git", RepositoryURL: workURL},
 			},
 		})
 	}
@@ -125,13 +127,23 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			// only loads active profiles, so exiting 0 here would be the
 			// silent-nothing outcome the check exists to prevent.
 			name:        "inactive profile matching this vault exits 1 with activate guidance",
-			configJSON:  multiProfileConfig("https://github.com/acme/other", "git@github.com:acme/vault.git"),
+			configJSON:  multiProfileConfig([]string{"other"}, "https://github.com/acme/other", "git@github.com:acme/vault.git"),
 			wantExit:    1,
 			wantOutputs: []string{"not active", "sx profile activate"},
 		},
 		{
+			// sx install merges every ACTIVE profile, not just the
+			// default — this is exactly the state the script's own
+			// remediation (profile add + activate) creates, so it must
+			// read as success.
+			name:        "second active profile matching this vault exits 0",
+			configJSON:  multiProfileConfig([]string{"other", "work"}, "https://github.com/acme/other", "git@github.com:acme/vault.git"),
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
+		},
+		{
 			name:       "no profile matches lists every configured vault",
-			configJSON: multiProfileConfig("https://github.com/acme/other", "https://github.com/acme/third"),
+			configJSON: multiProfileConfig([]string{"other"}, "https://github.com/acme/other", "https://github.com/acme/third"),
 			wantExit:   1,
 			wantOutputs: []string{
 				"sx profile activate",

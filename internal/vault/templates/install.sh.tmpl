@@ -66,16 +66,46 @@ normalize_vault_url() {
 # vault's config.
 if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
     VAULT_URL_NORM="$(normalize_vault_url "$VAULT_URL")"
-    # The top-level repositoryUrl (exactly two spaces of indent in sx's
-    # pretty-printed config) is the ACTIVE profile's URL; profile blocks
-    # are indented deeper. Only an active match is success — a matching
-    # profile that isn't active still installs nothing, so it must say
-    # so rather than green-check.
-    ACTIVE_URL="$(grep -E '^  "repositoryUrl"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)".*#\1#' | head -1 || true)"
-    if [ -n "$ACTIVE_URL" ] && [ "$(normalize_vault_url "$ACTIVE_URL")" = "$VAULT_URL_NORM" ]; then
-        echo "✓ sx CLI is already configured for this vault"
-        exit 0
-    fi
+    # URLs of ACTIVE profiles only. sx merges assets from every profile
+    # in activeProfiles — not just the default — so a match in ANY
+    # active profile is success, while a match in an inactive profile
+    # still installs nothing and must not green-check. Parsed from sx's
+    # pretty-printed config: activeProfiles is a flat name array, each
+    # 4-space-indented profile block carries its own repositoryUrl, and
+    # when no active profile resolves we fall back to the top-level
+    # (default-profile) URL sx writes for old binaries.
+    ACTIVE_URLS="$(awk '
+        /^  "activeProfiles": \[/ { inlist = 1; next }
+        inlist && /^  \]/         { inlist = 0; next }
+        inlist {
+            name = $0; sub(/^[ \t]+/, "", name); sub(/,$/, "", name); gsub(/"/, "", name)
+            active[name] = 1; next
+        }
+        /^  "repositoryUrl"/ {
+            url = $0; sub(/^[^:]*: *"/, "", url); sub(/".*$/, "", url); top = url; next
+        }
+        /^    "/ && /\{[ \t]*$/ {
+            prof = $0; sub(/^[ \t]+"/, "", prof); sub(/": *\{[ \t]*$/, "", prof); next
+        }
+        /^    \}/ { prof = ""; next }
+        prof != "" && /^      "repositoryUrl"/ {
+            url = $0; sub(/^[^:]*: *"/, "", url); sub(/".*$/, "", url); urls[prof] = url; next
+        }
+        END {
+            found = 0
+            for (p in urls) if (p in active) { print urls[p]; found = 1 }
+            if (!found && top != "") print top
+        }
+    ' "$SX_CONFIG_FILE" || true)"
+    while IFS= read -r active_url; do
+        [ -n "$active_url" ] || continue
+        if [ "$(normalize_vault_url "$active_url")" = "$VAULT_URL_NORM" ]; then
+            echo "✓ sx CLI is already configured for this vault"
+            exit 0
+        fi
+    done <<EOF
+$ACTIVE_URLS
+EOF
     CONFIGURED_URLS="$(grep -o '"repositoryUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)"#\1#' || true)"
     while IFS= read -r configured_url; do
         [ -n "$configured_url" ] || continue
