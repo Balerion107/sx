@@ -183,6 +183,8 @@ func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
 		`[ -n "$SKILLS_CONFIG_DIR" ]`,
 		"Library/Application Support/sx/config.json",
 		"${XDG_CONFIG_HOME:-$HOME/.config}/sx/config.json",
+		"${APPDATA:-$HOME/AppData/Roaming}/sx/config.json",
+		"MINGW*|MSYS*|CYGWIN*",
 		`[ -f "$SX_CONFIG_FILE" ]`,
 	} {
 		if !strings.Contains(result, want) {

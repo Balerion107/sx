@@ -120,8 +120,9 @@ Environment variables:
   SX_CONFIG_DIR      Override the config directory (isolation boundary)
   SKILLS_CONFIG_DIR  Legacy alias for SX_CONFIG_DIR
   SX_CACHE_DIR       Override the cache directory
+  SKILLS_CACHE_DIR   Legacy alias for SX_CACHE_DIR
 
-See docs/environment-variables.md for details.`,
+See https://github.com/sleuth-io/sx/blob/main/docs/environment-variables.md for details.`,
 		RunE: runConfig,
 	}
 	cmd.Flags().Bool("json", false, "Output in JSON format")
