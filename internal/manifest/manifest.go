@@ -769,20 +769,22 @@ func Marshal(m *Manifest) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Write writes the manifest to the given absolute path atomically.
-//
-// It refuses to write a manifest sx's own contract cannot consume: a
-// source-git ref that isn't a pinned 40-hex SHA would be copied into
-// every consumer's lock file and rejected by its validation, so the sx
-// command introducing it fails here, naming the asset — before the bad
-// ref ever lands on disk. Reads stay permissive (Parse does not check),
-// so a hand-authored bad ref can still be repaired with sx commands.
-func Write(m *Manifest, path string) error {
-	for i := range m.Assets {
-		if sg := m.Assets[i].SourceGit; sg != nil && !isFullCommitSHA(sg.Ref) {
-			return fmt.Errorf("asset %q: source-git ref must be a full 40-character lowercase commit SHA, got %q (branch and tag names are not supported — pin the exact commit)", m.Assets[i].Name, sg.Ref)
-		}
+// ValidateSourceGitRef enforces the lock contract's ref form on the
+// asset row being introduced: only a pinned 40-hex lowercase commit SHA
+// survives lock-file validation, so the command supplying anything else
+// must fail, naming the asset. Deliberately a per-row check invoked at
+// the points where a ref enters (asset upsert, legacy migration) rather
+// than a whole-file check on read or write — a pre-existing hand-edited
+// bad ref must not brick unrelated commands or block its own repair.
+func ValidateSourceGitRef(assetName string, sg *SourceGit) error {
+	if sg == nil || isFullCommitSHA(sg.Ref) {
+		return nil
 	}
+	return fmt.Errorf("asset %q: source-git ref must be a full 40-character lowercase commit SHA, got %q (branch and tag names are not supported — pin the exact commit)", assetName, sg.Ref)
+}
+
+// Write writes the manifest to the given absolute path atomically.
+func Write(m *Manifest, path string) error {
 	data, err := Marshal(m)
 	if err != nil {
 		return err

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
-	"github.com/sleuth-io/sx/v2/internal/mgmt"
 )
 
 func TestRoundTrip_AllScopeKinds(t *testing.T) {
@@ -500,31 +499,22 @@ func TestMarshalKeepsLegacyPortedTeamRepoLiteral(t *testing.T) {
 	}
 }
 
-// TestWriteRejectsNonSHASourceGitRef: a branch or tag ref would be
-// copied into every consumer's lock file and rejected there — so the
-// write path refuses it, naming the asset, before it lands on disk.
-// Parse stays permissive so a hand-authored bad ref can still be
-// repaired with sx commands.
-func TestWriteRejectsNonSHASourceGitRef(t *testing.T) {
-	bad := &Manifest{
-		SchemaVersion: 2,
-		Assets: []Asset{{
-			Name:      "my-skill",
-			Version:   "1.0.0",
-			SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: "main"},
-		}},
+// TestValidateSourceGitRef pins the per-row ref contract check invoked
+// where a ref enters (asset upsert, legacy migration): only pinned
+// 40-hex SHAs pass, and the error names the asset.
+func TestValidateSourceGitRef(t *testing.T) {
+	if err := ValidateSourceGitRef("a", nil); err != nil {
+		t.Fatalf("nil source-git must pass: %v", err)
 	}
-	err := Write(bad, filepath.Join(t.TempDir(), "sx.toml"))
+	if err := ValidateSourceGitRef("a", &SourceGit{Ref: strings.Repeat("a", 40)}); err != nil {
+		t.Fatalf("pinned SHA must pass: %v", err)
+	}
+	err := ValidateSourceGitRef("my-skill", &SourceGit{Ref: "main"})
 	if err == nil {
-		t.Fatal("a branch-name source-git ref must be rejected at write time")
+		t.Fatal("branch name must be rejected")
 	}
 	if !strings.Contains(err.Error(), "my-skill") {
-		t.Fatalf("error should name the offending asset, got: %v", err)
-	}
-
-	bad.Assets[0].SourceGit.Ref = strings.Repeat("a", 40)
-	if err := Write(bad, filepath.Join(t.TempDir(), "sx.toml")); err != nil {
-		t.Fatalf("a pinned 40-hex ref must write: %v", err)
+		t.Fatalf("error should name the asset, got: %v", err)
 	}
 }
 
@@ -548,31 +538,49 @@ ref = "main"
 	}
 }
 
-// TestResolveSkipsNonSHASourceGitRef: one hand-authored bad ref must
-// cost one asset in the resolved lock file, not fail every consumer's
-// entire install.
-func TestResolveSkipsNonSHASourceGitRef(t *testing.T) {
-	m := &Manifest{
-		SchemaVersion: 2,
-		Assets: []Asset{
-			{
-				Name:      "bad-ref",
-				Version:   "1.0.0",
-				SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: "main"},
-			},
-			{
-				Name:      "good-ref",
-				Version:   "1.0.0",
-				SourceGit: &SourceGit{URL: "https://github.com/acme/tools", Ref: strings.Repeat("b", 40)},
-			},
-		},
+// TestMigrationPrunesNonSHASourceGitRef: a legacy sx.lock entry the
+// current ref contract cannot express must be dropped during migration
+// (with a warning) rather than making the migration's own Save fail on
+// the read path forever.
+func TestMigrationPrunesNonSHASourceGitRef(t *testing.T) {
+	root := t.TempDir()
+	lock := `lock-version = "1.0"
+version = "1"
+
+[[assets]]
+name = "bad-ref"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+
+[[assets]]
+name = "good-ref"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "` + strings.Repeat("b", 40) + `"
+`
+	if err := os.WriteFile(filepath.Join(root, "sx.lock"), []byte(lock), 0644); err != nil {
+		t.Fatal(err)
 	}
-	lf := Resolve(m, mgmt.Actor{})
-	names := make([]string, 0, len(lf.Assets))
-	for _, a := range lf.Assets {
-		names = append(names, a.Name)
+
+	m, migrated, err := LoadOrMigrate(root)
+	if err != nil {
+		t.Fatalf("migration failed: %v", err)
 	}
-	if len(lf.Assets) != 1 || lf.Assets[0].Name != "good-ref" {
-		t.Fatalf("resolve should drop only the bad-ref asset, got %v", names)
+	if !migrated {
+		t.Fatal("expected a migration to run")
+	}
+	if len(m.Assets) != 1 || m.Assets[0].Name != "good-ref" {
+		names := make([]string, 0, len(m.Assets))
+		for _, a := range m.Assets {
+			names = append(names, a.Name)
+		}
+		t.Fatalf("migration should keep only good-ref, got %v", names)
 	}
 }

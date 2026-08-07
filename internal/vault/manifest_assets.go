@@ -63,7 +63,14 @@ func upsertAssetInManifest(vaultRoot string, asset *lockfile.Asset) error {
 			}
 		}
 	}
-	m.UpsertAsset(lockfileAssetToManifest(*asset))
+	row := lockfileAssetToManifest(*asset)
+	// The row being introduced is the author boundary for the ref
+	// contract: fail the command supplying a bad ref, named, without
+	// making a pre-existing bad row elsewhere block unrelated writes.
+	if err := manifest.ValidateSourceGitRef(row.Name, row.SourceGit); err != nil {
+		return err
+	}
+	m.UpsertAsset(row)
 	return manifest.Save(vaultRoot, m)
 }
 

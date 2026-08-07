@@ -9,6 +9,7 @@ import (
 
 	"github.com/sleuth-io/sx/v2/internal/buildinfo"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/logger"
 )
 
 // legacyLockFileName is the pre-manifest filename that older sx builds
@@ -109,6 +110,16 @@ func convertLockAssets(in []lockfile.Asset) []Asset {
 	}
 	out := make([]Asset, 0, len(in))
 	for _, src := range in {
+		// A legacy source-git entry whose ref isn't a pinned SHA can't
+		// be expressed in the current contract; carrying it verbatim
+		// would make the migration's own Save fail — permanently, since
+		// this runs on the read path. The migration is already a lossy
+		// conversion, so prune the entry with a warning instead.
+		if src.SourceGit != nil && !isFullCommitSHA(src.SourceGit.Ref) {
+			logger.Get().Warn("dropping legacy asset with non-SHA source-git ref during migration",
+				"asset", src.Name, "ref", src.SourceGit.Ref)
+			continue
+		}
 		dst := Asset{
 			Name:         src.Name,
 			Version:      src.Version,
