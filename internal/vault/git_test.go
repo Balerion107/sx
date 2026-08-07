@@ -193,6 +193,40 @@ func TestGitSourceHandler_FetchRecoversFromStaleCacheDir(t *testing.T) {
 	}
 }
 
+// TestGitSourceHandler_BadRefDoesNotDestroyCache guards the checkout
+// recovery's blast radius: a ref the repository simply doesn't have must
+// fail fast without discarding the healthy clone that every other asset
+// from the same URL shares.
+func TestGitSourceHandler_BadRefDoesNotDestroyCache(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	repoURL, sha := setupSourceGitRepo(t, 1)
+	handler := NewGitSourceHandler(git.NewClient())
+
+	// Warm the cache with a good fetch.
+	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, sha, "asset0")); err != nil {
+		t.Fatalf("warm fetch failed: %v", err)
+	}
+	repoCache, err := cache.GetGitRepoCachePath(repoURL)
+	if err != nil {
+		t.Fatalf("failed to get cache path: %v", err)
+	}
+	// An untracked marker: it survives checkouts, but not the destroy-
+	// and-re-clone path this test exists to rule out.
+	marker := filepath.Join(repoCache, "untracked-marker")
+	if err := os.WriteFile(marker, []byte("x"), 0644); err != nil {
+		t.Fatalf("failed to write marker: %v", err)
+	}
+
+	badRef := strings.Repeat("d", 40)
+	if _, err := handler.Fetch(context.Background(), sourceGitAsset("asset0", repoURL, badRef, "asset0")); err == nil {
+		t.Fatal("fetch of a nonexistent SHA should fail")
+	}
+	if !utils.FileExists(marker) {
+		t.Fatal("a bad ref must not destroy the shared cache")
+	}
+}
+
 // TestGitSourceHandler_CorruptCacheInsideAncestorRepo pins the
 // discovery behavior of the repo probes: when the cache directory lives
 // inside some unrelated git repository (a dotfiles-managed $HOME, a

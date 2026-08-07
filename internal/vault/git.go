@@ -66,18 +66,23 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 
 	// Checkout the specific commit
 	if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
-		// The object store can be damaged even when .git is intact (an
-		// interrupted transfer), which cloneOrUpdate cannot detect.
-		// Discard the cache and retry once with a fresh clone; a ref
-		// that genuinely doesn't exist just fails again.
-		if rmErr := os.RemoveAll(repoCache); rmErr != nil {
+		// A ref the repository simply doesn't have won't appear after a
+		// re-clone either — fail fast rather than discarding the cache
+		// every other asset from this URL shares. Recovery is reserved
+		// for a cache that is genuinely damaged: the commit is present
+		// yet can't be checked out (broken worktree/objects), or the
+		// repository itself no longer answers.
+		if !g.gitClient.HasCommit(ctx, repoCache, source.Ref) && g.gitClient.IsRepo(ctx, repoCache) {
 			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+		}
+		if rmErr := os.RemoveAll(repoCache); rmErr != nil {
+			return nil, fmt.Errorf("failed to checkout ref %s (%w); could not discard damaged cache: %w", source.Ref, err, rmErr)
 		}
 		if cloneErr := g.clone(ctx, source.URL, repoCache); cloneErr != nil {
-			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+			return nil, fmt.Errorf("failed to checkout ref %s (%w); re-clone of discarded cache also failed: %w", source.Ref, err, cloneErr)
 		}
 		if err := g.checkout(ctx, repoCache, source.Ref); err != nil {
-			return nil, fmt.Errorf("failed to checkout ref %s: %w", source.Ref, err)
+			return nil, fmt.Errorf("failed to checkout ref %s after re-clone: %w", source.Ref, err)
 		}
 	}
 
@@ -168,14 +173,20 @@ func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, e
 
 	fileLock := flock.New(lockFile)
 
-	// Grab it uncontended if possible; otherwise say so once before
-	// blocking, so a multi-minute wait on a peer's clone doesn't read as
-	// a hang.
-	if locked, err := fileLock.TryLock(); err == nil && locked {
+	// Grab it uncontended if possible; on genuine contention, say so once
+	// before blocking, so a multi-minute wait on a peer's clone doesn't
+	// read as a hang. The peer may be a goroutine in this same process —
+	// flock conflicts per open file description — so the message doesn't
+	// claim another process. A TryLock error is not contention; it will
+	// surface from TryLockContext below.
+	locked, tryErr := fileLock.TryLock()
+	if tryErr == nil && locked {
 		return fileLock, nil
 	}
-	logger.Get().Info("waiting for another sx process to finish with this repository",
-		"repo", filepath.Base(repoPath))
+	if tryErr == nil {
+		logger.Get().Info("waiting for another operation on this repository",
+			"repo", filepath.Base(repoPath))
+	}
 
 	lockCtx, cancel := context.WithTimeout(ctx, repoCacheLockTimeout)
 	defer cancel()
@@ -269,8 +280,12 @@ func (g *GitSourceHandler) findZipFiles(dir string) ([]string, error) {
 	return zipFiles, nil
 }
 
-// ResolveRef resolves a branch or tag name to a commit SHA
-// This is used during lock file generation to convert friendly names to commit SHAs
+// ResolveRef resolves a branch or tag name to a commit SHA. Intended
+// for lock file generation (converting friendly names to pinned SHAs);
+// currently unwired — no production caller exists yet.
+//
+// The caller must NOT already hold this repo's cache lock: the lock is
+// not re-entrant, and nesting would stall until the lock timeout.
 func (g *GitSourceHandler) ResolveRef(ctx context.Context, repoURL, ref string) (string, error) {
 	// Get cache path for this repository
 	repoCache, err := cache.GetGitRepoCachePath(repoURL)

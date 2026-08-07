@@ -367,6 +367,10 @@ func (c *Client) RevParse(ctx context.Context, repoPath, ref string) (string, er
 // without touching the network. The repository is addressed by explicit
 // --git-dir so git's upward repository discovery can never answer about
 // an ancestor of repoPath.
+//
+// repoPath must be an absolute path to a non-bare clone (a directory
+// with .git directly inside it) — the layout sx's own clones always
+// have. A bare repository or relative path reports false.
 func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
 	cmd := c.command(ctx, "--git-dir", filepath.Join(repoPath, ".git"), "cat-file", "-e", sha+"^{commit}")
 	return cmd.Run() == nil
@@ -376,6 +380,11 @@ func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
 // --resolve-git-dir checks that exact path — no upward discovery, so an
 // ancestor repository (a cache dir under a dotfiles-managed $HOME, say)
 // cannot make a corrupt cache look healthy.
+//
+// repoPath must be an absolute path to a non-bare clone (a directory
+// with .git directly inside it) — the layout sx's own clones always
+// have. A bare repository or relative path reports false, and callers
+// treat false as license to discard the directory.
 func (c *Client) IsRepo(ctx context.Context, repoPath string) bool {
 	cmd := c.command(ctx, "rev-parse", "--resolve-git-dir", filepath.Join(repoPath, ".git"))
 	return cmd.Run() == nil
