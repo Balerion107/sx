@@ -6,7 +6,18 @@ set -e
 # Safe to run multiple times (idempotent).
 # Template version: {{.TEMPLATE_VERSION}}
 
-SX_CONFIG="$HOME/.config/sleuth/skills/config.json"
+# Resolve sx's config file location, mirroring the sx CLI's own lookup:
+# SX_CONFIG_DIR, then the legacy SKILLS_CONFIG_DIR, then the platform
+# default. This is a script-local file path, not an sx env var.
+if [ -n "$SX_CONFIG_DIR" ]; then
+    SX_CONFIG_FILE="$SX_CONFIG_DIR/config.json"
+elif [ -n "$SKILLS_CONFIG_DIR" ]; then
+    SX_CONFIG_FILE="$SKILLS_CONFIG_DIR/config.json"
+elif [ "$(uname)" = "Darwin" ]; then
+    SX_CONFIG_FILE="$HOME/Library/Application Support/sx/config.json"
+else
+    SX_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/sx/config.json"
+fi
 
 # Check if sx CLI is already installed
 if command -v sx &> /dev/null; then
@@ -29,7 +40,7 @@ else
 fi
 
 # Check if already configured
-if [ -f "$SX_CONFIG" ]; then
+if [ -f "$SX_CONFIG_FILE" ]; then
     echo "✓ sx CLI is already configured"
     exit 0
 fi

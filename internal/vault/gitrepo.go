@@ -37,7 +37,7 @@ var readmeTemplate string
 const (
 	// installScriptTemplateVersion is the current version of the install.sh template
 	// Increment this when making changes to the template
-	installScriptTemplateVersion = "1"
+	installScriptTemplateVersion = "2"
 
 	// gitSyncTTL is how long cloneOrUpdate trusts the local clone before
 	// pulling again. Within the window every read short-circuits to the

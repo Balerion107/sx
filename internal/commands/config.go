@@ -114,8 +114,15 @@ func NewConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Display configuration and installation status",
-		Long:  "Shows current configuration, detected clients, installed assets, and paths for debugging and remote support.",
-		RunE:  runConfig,
+		Long: `Shows current configuration, detected clients, installed assets, and paths for debugging and remote support.
+
+Environment variables:
+  SX_CONFIG_DIR      Override the config directory (isolation boundary)
+  SKILLS_CONFIG_DIR  Legacy alias for SX_CONFIG_DIR
+  SX_CACHE_DIR       Override the cache directory
+
+See docs/environment-variables.md for details.`,
+		RunE: runConfig,
 	}
 	cmd.Flags().Bool("json", false, "Output in JSON format")
 	cmd.Flags().Bool("all", false, "Show all assets from lock file, not just those for current repo context")

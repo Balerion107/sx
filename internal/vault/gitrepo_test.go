@@ -169,6 +169,35 @@ func TestGenerateInstallScript(t *testing.T) {
 	}
 }
 
+// TestGenerateInstallScript_ConfigFileCheck guards against issue #219:
+// the script's "already configured?" check must use the script-local
+// SX_CONFIG_FILE name (not the env-var-lookalike SX_CONFIG), honor the
+// real SX_CONFIG_DIR/SKILLS_CONFIG_DIR overrides, and not point at the
+// stale legacy sleuth/skills path sx no longer writes.
+func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
+	result := generateInstallScript("https://github.com/test/repo.git")
+
+	for _, want := range []string{
+		"SX_CONFIG_FILE=",
+		`[ -n "$SX_CONFIG_DIR" ]`,
+		`[ -n "$SKILLS_CONFIG_DIR" ]`,
+		"Library/Application Support/sx/config.json",
+		"${XDG_CONFIG_HOME:-$HOME/.config}/sx/config.json",
+		`[ -f "$SX_CONFIG_FILE" ]`,
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("generateInstallScript() should contain %q", want)
+		}
+	}
+
+	if strings.Contains(result, ".config/sleuth/skills") {
+		t.Error("generateInstallScript() still references the stale legacy config path")
+	}
+	if strings.Contains(result, `"$SX_CONFIG"`) {
+		t.Error("generateInstallScript() still uses the misleading SX_CONFIG variable")
+	}
+}
+
 func TestGenerateReadme(t *testing.T) {
 	repoURL := "https://github.com/test/repo.git"
 	result := generateReadme(repoURL)

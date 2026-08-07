@@ -51,6 +51,7 @@ make build && ./dist/sx <command>
 - [Usage analytics](docs/stats.md) - `sx stats` dashboard and event format
 - [Metadata Spec](docs/metadata-spec.md) - Asset metadata format and fields
 - [MCP Spec](docs/mcp-spec.md) - MCP server tools (query)
+- [Environment Variables](docs/environment-variables.md) - SX_CONFIG_DIR, SX_CACHE_DIR, and isolation recipes
 
 ## Development
 
