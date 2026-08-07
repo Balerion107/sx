@@ -130,34 +130,12 @@ func (g *GitVault) Authenticate(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// acquireFileLock acquires a file lock for the git repository to prevent cross-process conflicts
+// acquireFileLock acquires a file lock for the git repository to prevent
+// cross-process conflicts. It delegates to acquireRepoCacheLock so the
+// lock file path has exactly one definition and vault-level operations
+// stay mutually exclusive with source-git fetches of the same repo.
 func (g *GitVault) acquireFileLock(ctx context.Context) (*flock.Flock, error) {
-	// Put lock file in cache directory, not in repo path
-	// Use repo path hash to create unique lock filename
-	cacheDir, err := cache.GetCacheDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cache dir: %w", err)
-	}
-
-	lockFile := filepath.Join(cacheDir, "git-repos", filepath.Base(g.repoPath)+".lock")
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create lock directory: %w", err)
-	}
-
-	fileLock := flock.New(lockFile)
-
-	// Try to acquire the lock with a timeout
-	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
-	if err != nil {
-		return nil, fmt.Errorf("failed to acquire file lock: %w", err)
-	}
-	if !locked {
-		return nil, errors.New("could not acquire file lock (timeout)")
-	}
-
-	return fileLock, nil
+	return acquireRepoCacheLock(ctx, g.repoPath)
 }
 
 // GetLockFile clones or syncs the Git vault, then returns a lock file

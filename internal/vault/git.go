@@ -53,9 +53,13 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	// Clone or update repository
-	if err := g.cloneOrUpdate(ctx, source.URL, repoCache); err != nil {
-		return nil, fmt.Errorf("failed to clone/update repository: %w", err)
+	// Refs are pinned 40-char SHAs, so once one fetch has brought the
+	// commit into the shared cache, the queued fetches behind it (and any
+	// later install) can skip the network round-trip entirely.
+	if !isFullSHA(source.Ref) || !g.gitClient.HasCommit(ctx, repoCache, source.Ref) {
+		if err := g.cloneOrUpdate(ctx, source.URL, repoCache); err != nil {
+			return nil, fmt.Errorf("failed to clone/update repository: %w", err)
+		}
 	}
 
 	// Checkout the specific commit
@@ -125,11 +129,22 @@ func (g *GitSourceHandler) Fetch(ctx context.Context, asset *lockfile.Asset) ([]
 	return nil, fmt.Errorf("no zip files or exploded asset directory found in %s", searchDir)
 }
 
+// repoCacheLockTimeout bounds how long a caller waits for another
+// holder of a repo cache lock. Generous because the holder may be
+// cloning a large repository over the network; its purpose is only to
+// turn a wedged holder into an error instead of an infinite silent spin.
+const repoCacheLockTimeout = 10 * time.Minute
+
 // acquireRepoCacheLock serializes access to a URL-keyed git cache
-// directory across goroutines and processes. It uses the same lock file
-// convention as GitVault.acquireFileLock (<cache dir>.lock alongside the
-// clone), so vault-level and source-git operations on the same repo
-// queue on the same lock.
+// directory across goroutines and processes. GitVault.acquireFileLock
+// delegates here, so the locked vault operations (GetLockFile, AddAsset,
+// path-source GetAsset) and source-git fetches of the same repo queue on
+// the same lock; vault read paths that sync without locking are not
+// covered.
+//
+// flock is not re-entrant: two flock.Flock instances conflict even in
+// one process, so a caller already holding this repo's lock must not
+// call this again — it would block until the timeout.
 func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, error) {
 	lockFile := repoPath + ".lock"
 
@@ -139,7 +154,9 @@ func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, e
 
 	fileLock := flock.New(lockFile)
 
-	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
+	lockCtx, cancel := context.WithTimeout(ctx, repoCacheLockTimeout)
+	defer cancel()
+	locked, err := fileLock.TryLockContext(lockCtx, 100*time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire file lock: %w", err)
 	}
@@ -150,23 +167,47 @@ func acquireRepoCacheLock(ctx context.Context, repoPath string) (*flock.Flock, e
 	return fileLock, nil
 }
 
+// isFullSHA reports whether ref is a full 40-character commit SHA.
+func isFullSHA(ref string) bool {
+	if len(ref) != 40 {
+		return false
+	}
+	for _, c := range ref {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // cloneOrUpdate clones the repository if it doesn't exist, or fetches updates if it does.
 // Callers must hold the repo cache lock (see acquireRepoCacheLock).
 func (g *GitSourceHandler) cloneOrUpdate(ctx context.Context, repoURL, repoPath string) error {
-	if utils.IsDirectory(filepath.Join(repoPath, ".git")) {
-		// Repository exists, fetch updates
-		return g.fetch(ctx, repoPath)
-	}
-
-	// A directory without .git is a remnant of an interrupted clone;
-	// git refuses to clone into a non-empty directory, so clear it.
-	if utils.IsDirectory(repoPath) {
+	// Presence check, not IsDirectory: .git can legitimately be a gitlink
+	// file, and treating one as stale would delete a healthy repo.
+	if utils.FileExists(filepath.Join(repoPath, ".git")) {
+		err := g.fetch(ctx, repoPath)
+		if err == nil {
+			return nil
+		}
+		// A fetch can fail because the network is down or because an
+		// interrupted clone left the cache corrupt. Only discard the
+		// cache when git says it is not a repository; a healthy clone
+		// with a transient network error keeps its objects.
+		if g.gitClient.IsRepo(ctx, repoPath) {
+			return err
+		}
+		if rmErr := os.RemoveAll(repoPath); rmErr != nil {
+			return fmt.Errorf("failed to remove corrupt cache directory: %w", rmErr)
+		}
+	} else if utils.IsDirectory(repoPath) {
+		// A directory without .git is a remnant of an interrupted clone;
+		// git refuses to clone into a non-empty directory, so clear it.
 		if err := os.RemoveAll(repoPath); err != nil {
 			return fmt.Errorf("failed to remove stale cache directory: %w", err)
 		}
 	}
 
-	// Repository doesn't exist, clone it
 	return g.clone(ctx, repoURL, repoPath)
 }
 

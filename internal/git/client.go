@@ -362,6 +362,21 @@ func (c *Client) RevParse(ctx context.Context, repoPath, ref string) (string, er
 	return strings.TrimSpace(string(output)), nil
 }
 
+// HasCommit reports whether the commit exists in the local repository,
+// without touching the network.
+func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
+	cmd := c.command(ctx, "cat-file", "-e", sha+"^{commit}")
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
+}
+
+// IsRepo reports whether repoPath is a usable git repository.
+func (c *Client) IsRepo(ctx context.Context, repoPath string) bool {
+	cmd := c.command(ctx, "rev-parse", "--git-dir")
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
+}
+
 // GetRemoteURL returns the remote URL for the repository (typically 'origin')
 func (c *Client) GetRemoteURL(ctx context.Context, repoPath string) (string, error) {
 	cmd := c.command(ctx, "remote", "get-url", "origin")
