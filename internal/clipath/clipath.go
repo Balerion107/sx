@@ -216,7 +216,39 @@ func versionedTreeAlias(path string) string {
 	if alias == "" || !isExecutableFile(alias) || samePath(alias, path) {
 		return ""
 	}
+	// The alias must actually be a spelling of this same formula: its
+	// target is the running keg, or another keg of the same formula
+	// (version skew from a pending upgrade is expected — brew's link
+	// points at the newest keg). A standalone binary that merely
+	// occupies <prefix>/bin — Intel macOS, where brew's prefix and
+	// install.sh's target are both /usr/local — is a different CLI and
+	// must not displace the one that is running.
+	target, err := filepath.EvalSymlinks(alias)
+	if err != nil {
+		return ""
+	}
+	if samePath(target, canon) {
+		return alias
+	}
+	tree := formulaTree(canon)
+	if tree == "" || !strings.HasPrefix(filepath.ToSlash(target), tree) {
+		return ""
+	}
 	return alias
+}
+
+// formulaTree returns the "<prefix>/Cellar/<formula>/" prefix a Cellar
+// path belongs to, or "" for non-Cellar paths.
+func formulaTree(canon string) string {
+	prefix, rest, found := strings.Cut(filepath.ToSlash(canon), "/Cellar/")
+	if !found {
+		return ""
+	}
+	formula, _, ok := strings.Cut(rest, "/")
+	if !ok || formula == "" {
+		return ""
+	}
+	return prefix + "/Cellar/" + formula + "/"
 }
 
 // brewCellarAlias derives the stable bin path a Homebrew-style Cellar

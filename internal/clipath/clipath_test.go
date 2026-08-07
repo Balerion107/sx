@@ -230,6 +230,33 @@ func TestShouldRewriteUpgradesStaleCellarVersion(t *testing.T) {
 	}
 }
 
+// Intel-macOS shape: brew's prefix and install.sh's target are both
+// /usr/local, so <prefix>/bin/sx can be a standalone binary unrelated to
+// the running keg. That binary must not displace the keg — pinning hooks
+// to a different (possibly older) CLI is exactly what Resolve's
+// forward-only skew rule forbids.
+func TestResolveKeepsKegWhenPrefixBinIsUnrelated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Cellar layout is not a Windows shape")
+	}
+	t.Setenv(EnvOverride, "")
+	root := tempRoot(t)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	keg := writeFakeCLI(t, filepath.Join(root, "Cellar", "sx", "2.3.1", "bin"), binaryName())
+	// A regular file, not a symlink into the Cellar: a separate install.
+	writeFakeCLI(t, filepath.Join(root, "bin"), binaryName())
+	stubExecutable(t, keg)
+	stubInstallDirs(t, nil)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != keg {
+		t.Fatalf("Resolve = %q, want the running keg %q, not the unrelated prefix binary", got, keg)
+	}
+}
+
 // The alias trade keys purely on the versioned-tree shape: a CLI outside
 // installDirs is recorded as invoked, even when an installDirs symlink to
 // the same binary exists. Anything else would make the recorded spelling
