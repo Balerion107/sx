@@ -110,12 +110,18 @@ func convertLockAssets(in []lockfile.Asset) []Asset {
 	}
 	out := make([]Asset, 0, len(in))
 	for _, src := range in {
-		// A legacy source-git entry whose ref isn't a pinned SHA can't
-		// be expressed in the current contract; carrying it verbatim
-		// would make the migration's own Save fail — permanently, since
-		// this runs on the read path. The migration is already a lossy
-		// conversion, so prune the entry with a warning instead.
+		// A legacy source-git entry whose ref isn't a pinned SHA cannot
+		// survive the current contract: it would be copied verbatim into
+		// every consumer's resolved lock file, whose validation only
+		// accepts 40-hex SHAs, failing their installs wholesale. The
+		// migration is already a lossy conversion, so prune the entry —
+		// loudly, on stderr, since this runs once per vault and the drop
+		// uninstalls the asset from consumers — and point at the
+		// preserved original (sx.lock.migrated) for recovery.
 		if src.SourceGit != nil && !isFullCommitSHA(src.SourceGit.Ref) {
+			fmt.Fprintf(os.Stderr,
+				"warning: dropping asset %q during migration: source-git ref %q is not a pinned commit SHA; re-add it with a full 40-character commit SHA (the original entry is preserved in sx.lock.migrated)\n",
+				src.Name, src.SourceGit.Ref)
 			logger.Get().Warn("dropping legacy asset with non-SHA source-git ref during migration",
 				"asset", src.Name, "ref", src.SourceGit.Ref)
 			continue

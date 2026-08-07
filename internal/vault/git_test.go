@@ -329,6 +329,48 @@ func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
 	}
 }
 
+// TestAssetWritePathsRejectNonSHASourceGitRef: the ref contract is
+// enforced on the row being written at every reachable asset-write
+// path, so the command supplying a branch/tag ref fails with the asset
+// named — before the bad ref lands in the manifest and breaks every
+// consumer's lock validation.
+func TestAssetWritePathsRejectNonSHASourceGitRef(t *testing.T) {
+	t.Setenv("SX_CACHE_DIR", t.TempDir())
+
+	root := t.TempDir()
+	v, err := NewPathVault(root)
+	if err != nil {
+		t.Fatalf("failed to create path vault: %v", err)
+	}
+
+	bad := &lockfile.Asset{
+		Name:    "bad-ref",
+		Version: "1.0.0",
+		Type:    asset.TypeSkill,
+		SourceGit: &lockfile.SourceGit{
+			URL: "https://github.com/acme/tools",
+			Ref: "main",
+		},
+	}
+
+	if err := v.SetInstallations(context.Background(), bad, ""); err == nil {
+		t.Fatal("SetInstallations must reject a non-SHA source-git ref")
+	} else if !strings.Contains(err.Error(), "bad-ref") {
+		t.Fatalf("error should name the asset, got: %v", err)
+	}
+	if err := v.InheritInstallations(context.Background(), bad); err == nil {
+		t.Fatal("InheritInstallations must reject a non-SHA source-git ref")
+	} else if !strings.Contains(err.Error(), "bad-ref") {
+		t.Fatalf("error should name the asset, got: %v", err)
+	}
+
+	// A pinned SHA passes the same paths.
+	bad.SourceGit.Ref = strings.Repeat("a", 40)
+	if err := v.SetInstallations(context.Background(), bad, ""); err != nil {
+		t.Fatalf("SetInstallations must accept a pinned SHA: %v", err)
+	}
+}
+
 // TestGitVaultSyncHealsPartialWorktree: a vault clone with intact .git
 // but a working tree missing the manifest (an interrupted repair) must
 // be restored during sync — a pull alone reports up-to-date and

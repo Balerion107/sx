@@ -63,14 +63,10 @@ func upsertAssetInManifest(vaultRoot string, asset *lockfile.Asset) error {
 			}
 		}
 	}
-	row := lockfileAssetToManifest(*asset)
-	// The row being introduced is the author boundary for the ref
-	// contract: fail the command supplying a bad ref, named, without
-	// making a pre-existing bad row elsewhere block unrelated writes.
-	if err := manifest.ValidateSourceGitRef(row.Name, row.SourceGit); err != nil {
+	if err := validateAssetRef(asset); err != nil {
 		return err
 	}
-	m.UpsertAsset(row)
+	m.UpsertAsset(lockfileAssetToManifest(*asset))
 	return manifest.Save(vaultRoot, m)
 }
 
@@ -84,12 +80,27 @@ func upsertAssetInManifest(vaultRoot string, asset *lockfile.Asset) error {
 // edit gate (docs/rbac.md) has already vetted that the caller may
 // republish the asset.
 func upsertAssetInheritingScopes(vaultRoot string, asset *lockfile.Asset) error {
+	if err := validateAssetRef(asset); err != nil {
+		return err
+	}
 	m, err := loadManifest(vaultRoot)
 	if err != nil {
 		return err
 	}
 	upsertAssetInheritingScopesTx(m, asset)
 	return manifest.Save(vaultRoot, m)
+}
+
+// validateAssetRef enforces the lock contract's pinned-SHA ref form on
+// the row being written, at every path that introduces an asset row —
+// the author boundary. Per-row on purpose: a pre-existing hand-edited
+// bad ref elsewhere in the manifest must not block unrelated commands
+// (that case surfaces at the consumer's lock-file validation instead).
+func validateAssetRef(asset *lockfile.Asset) error {
+	if asset.SourceGit == nil {
+		return nil
+	}
+	return manifest.ValidateSourceGitRef(asset.Name, &manifest.SourceGit{Ref: asset.SourceGit.Ref})
 }
 
 // upsertAssetInheritingScopesTx is upsertAssetInheritingScopes against an
