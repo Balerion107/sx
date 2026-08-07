@@ -34,8 +34,13 @@ When unset, sx uses the platform default:
 
 Overrides the **cache directory** — downloaded assets, cloned git
 repositories, ETags, and lock files. When unset, sx uses the platform
-cache default (e.g. `~/Library/Caches/sx` on macOS, `$XDG_CACHE_HOME/sx`
-or `~/.cache/sx` on Linux).
+default:
+
+| Platform | Default |
+|----------|---------|
+| Linux    | `$XDG_CACHE_HOME/sx` (falls back to `~/.cache/sx`) |
+| macOS    | `~/Library/Caches/sx` |
+| Windows  | `%LocalAppData%\sx` |
 
 `SKILLS_CACHE_DIR` is the legacy alias, checked only when
 `SX_CACHE_DIR` is unset.
@@ -50,6 +55,7 @@ overrides all three:
 export HOME="$SANDBOX/home"          # client install targets (~/.claude, …)
 export SX_CONFIG_DIR="$SANDBOX/config"
 export SX_CACHE_DIR="$SANDBOX/cache"
+export DISABLE_AUTOUPDATER=1         # no background binary replacement
 mkdir -p "$HOME"
 
 sx init --type git --repo-url "$VAULT_URL"
@@ -59,8 +65,9 @@ sx config   # verify: reported config path is under $SX_CONFIG_DIR
 
 Always verify isolation with `sx config` — it prints the effective
 config path and directories. Also make sure the sandbox environment
-doesn't inherit a stray `SX_PROFILE` (below), which would change which
-profile a sandboxed run resolves.
+doesn't inherit a stray `SX_PROFILE`, `SX_BOT`, or `SX_BOT_KEY`
+(below), which would change which profile or identity a sandboxed run
+resolves.
 
 ## Other variables
 
@@ -70,11 +77,15 @@ state:
 | Variable | Effect |
 |----------|--------|
 | `SX_PROFILE` | Selects the active config profile, overriding the one saved in config |
+| `SX_BOT` | Runs as the named bot identity (see [Bots](bots.md)) |
+| `SX_BOT_KEY` | Authentication key for the bot identity (see [Bots](bots.md)) |
 | `SX_STRICT` | `1` makes hook installs that soft-skip count as failures (same as `--strict`) |
 | `SX_SSH_KEY` | SSH key path (or inline key content) for git operations (same as `--ssh-key`; legacy alias `SKILLS_SSH_KEY`) |
 | `SX_SYNC_SILENT` | `true` silences background sync output (legacy alias `SKILLS_SYNC_SILENT`) |
 | `SX_CLOUD_URL` | Overrides the cloud relay URL for `sx cloud` |
 | `SX_CLI_PATH` | Overrides which sx binary gets written into client hook/MCP configs |
+| `SLEUTH_SERVER_URL` | Overrides the Sleuth server URL for `type=sleuth` vaults |
+| `DISABLE_AUTOUPDATER` | Truthy (`1`/`true`/`yes`/`on`) disables the background self-updater — recommended in CI and containers |
 
 ## What is *not* an sx environment variable
 

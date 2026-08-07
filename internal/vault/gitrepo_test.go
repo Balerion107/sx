@@ -186,6 +186,10 @@ func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
 		"${APPDATA:-$HOME/AppData/Roaming}/sx/config.json",
 		"MINGW*|MSYS*|CYGWIN*",
 		`[ -f "$SX_CONFIG_FILE" ]`,
+		// The "already configured" check must match this vault's URL, not
+		// mere file existence — a different vault's config is not success.
+		`grep -qF "$VAULT_URL" "$SX_CONFIG_FILE"`,
+		"SX_PROFILE=<name> sx init",
 	} {
 		if !strings.Contains(result, want) {
 			t.Errorf("generateInstallScript() should contain %q", want)
@@ -197,6 +201,9 @@ func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
 	}
 	if strings.Contains(result, `"$SX_CONFIG"`) {
 		t.Error("generateInstallScript() still uses the misleading SX_CONFIG variable")
+	}
+	if strings.Index(result, "VAULT_URL=") > strings.Index(result, `grep -qF "$VAULT_URL"`) {
+		t.Error("VAULT_URL must be assigned before the already-configured check uses it")
 	}
 }
 

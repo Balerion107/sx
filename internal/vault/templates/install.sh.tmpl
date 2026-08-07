@@ -45,18 +45,30 @@ else
     echo "✓ sx CLI installed successfully"
 fi
 
-# Check if already configured
+# The asset vault URL this script configures
+VAULT_URL="{{.REPO_URL}}"
+
+# Check if already configured for THIS vault. config.json stores every
+# profile's repositoryUrl, so a plain match covers all profiles. Mere
+# existence of the file is not enough: being configured for a different
+# vault must not read as success, and running sx init here would
+# silently overwrite that other vault's config.
 if [ -f "$SX_CONFIG_FILE" ]; then
-    echo "✓ sx CLI is already configured"
-    exit 0
+    if grep -qF "$VAULT_URL" "$SX_CONFIG_FILE"; then
+        echo "✓ sx CLI is already configured for this vault"
+        exit 0
+    fi
+    echo "sx CLI is already configured, but for a different vault:"
+    grep -o '"repositoryUrl"[^,}]*' "$SX_CONFIG_FILE" | head -5 || true
+    echo
+    echo "To add this vault as a separate profile, run:"
+    echo "  SX_PROFILE=<name> sx init --type git --repo-url \"$VAULT_URL\""
+    exit 1
 fi
 
 echo
 echo "Configuring sx CLI for this vault..."
 echo
-
-# Use the asset vault URL
-VAULT_URL="{{.REPO_URL}}"
 
 echo "Using vault: $VAULT_URL"
 echo
