@@ -3,10 +3,29 @@ set -e
 
 # Auto-generated install script for sx asset vault
 # This script ensures the sx CLI is installed and configured.
-# Safe to run multiple times (idempotent).
+# Idempotent for this vault: re-running when already configured for it
+# is a no-op (exit 0). Exits non-zero when sx is configured for a
+# DIFFERENT vault, with instructions to add this one as a profile.
 # Template version: {{.TEMPLATE_VERSION}}
 
-SX_CONFIG="$HOME/.config/sleuth/skills/config.json"
+# Resolve sx's config file location, mirroring the sx CLI's own lookup:
+# SX_CONFIG_DIR, then the legacy SKILLS_CONFIG_DIR, then the platform
+# default. This is a script-local file path, not an sx env var.
+if [ -n "$SX_CONFIG_DIR" ]; then
+    SX_CONFIG_FILE="$SX_CONFIG_DIR/config.json"
+elif [ -n "$SKILLS_CONFIG_DIR" ]; then
+    SX_CONFIG_FILE="$SKILLS_CONFIG_DIR/config.json"
+else
+    case "$(uname -s)" in
+        Darwin)
+            SX_CONFIG_FILE="$HOME/Library/Application Support/sx/config.json" ;;
+        MINGW*|MSYS*|CYGWIN*)
+            # Git Bash / MSYS2 / Cygwin: the CLI uses %AppData%\sx
+            SX_CONFIG_FILE="${APPDATA:-$HOME/AppData/Roaming}/sx/config.json" ;;
+        *)
+            SX_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/sx/config.json" ;;
+    esac
+fi
 
 # Check if sx CLI is already installed
 if command -v sx &> /dev/null; then
@@ -28,18 +47,126 @@ else
     echo "✓ sx CLI installed successfully"
 fi
 
-# Check if already configured
-if [ -f "$SX_CONFIG" ]; then
-    echo "✓ sx CLI is already configured"
-    exit 0
+# The asset vault URL this script configures
+VAULT_URL="{{.REPO_URL}}"
+
+# Normalize a vault URL for comparison: strip a trailing .git and
+# rewrite the ssh form (git@host:path) to the https form, so equivalent
+# spellings of the same repository compare equal.
+normalize_vault_url() {
+    printf '%s' "$1" | sed -E -e 's#\.git$##' -e 's#^git@([^:]+):#https://\1/#'
+}
+
+# Check if already configured for THIS vault. config.json stores every
+# profile's repositoryUrl; compare each full value (normalized), never a
+# substring — a substring match would call a repo that merely shares a
+# prefix "already configured". Mere existence of the file is not enough
+# either: being configured for a different vault must not read as
+# success, and running sx init here would silently overwrite that other
+# vault's config.
+if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
+    VAULT_URL_NORM="$(normalize_vault_url "$VAULT_URL")"
+    # URLs of ACTIVE profiles only. sx merges assets from every profile
+    # in activeProfiles — not just the default — so a match in ANY
+    # active profile is success, while a match in an inactive profile
+    # still installs nothing and must not green-check. A comma-separated
+    # SX_PROFILE overrides the active set outright, exactly as sx's own
+    # read side resolves it (GetActiveProfileNames). Parsed from sx's
+    # pretty-printed config: activeProfiles is a flat name array, each
+    # 4-space-indented profile block carries its own repositoryUrl, and
+    # when nothing resolves (and no override is set) we fall back to the
+    # top-level (default-profile) URL sx writes for old binaries.
+    ACTIVE_URLS="$(awk -v override="${SX_PROFILE:-}" '
+        BEGIN {
+            if (override != "") {
+                n = split(override, parts, ",")
+                for (i = 1; i <= n; i++) {
+                    p = parts[i]; gsub(/^[ \t]+|[ \t]+$/, "", p)
+                    if (p != "") { active[p] = 1 }
+                }
+                haveOverride = 1
+            }
+        }
+        !haveOverride && /^  "activeProfiles": \[/ { inlist = 1; next }
+        inlist && /^  \]/         { inlist = 0; next }
+        inlist {
+            name = $0; sub(/^[ \t]+/, "", name); sub(/,$/, "", name); gsub(/"/, "", name)
+            active[name] = 1; next
+        }
+        /^  "repositoryUrl"/ {
+            url = $0; sub(/^[^:]*: *"/, "", url); sub(/".*$/, "", url); top = url; next
+        }
+        /^    "/ && /\{[ \t]*$/ {
+            prof = $0; sub(/^[ \t]+"/, "", prof); sub(/": *\{[ \t]*$/, "", prof); next
+        }
+        /^    \}/ { prof = ""; next }
+        prof != "" && /^      "repositoryUrl"/ {
+            url = $0; sub(/^[^:]*: *"/, "", url); sub(/".*$/, "", url); urls[prof] = url; next
+        }
+        END {
+            found = 0
+            for (p in urls) if (p in active) { print urls[p]; found = 1 }
+            if (!found && !haveOverride && top != "") print top
+        }
+    ' "$SX_CONFIG_FILE" || true)"
+    while IFS= read -r active_url; do
+        [ -n "$active_url" ] || continue
+        if [ "$(normalize_vault_url "$active_url")" = "$VAULT_URL_NORM" ]; then
+            echo "✓ sx CLI is already configured for this vault"
+            exit 0
+        fi
+    done <<EOF
+$ACTIVE_URLS
+EOF
+    CONFIGURED_URLS="$(grep -o '"repositoryUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$SX_CONFIG_FILE" | sed -E 's#.*:[[:space:]]*"([^"]*)"#\1#' || true)"
+    while IFS= read -r configured_url; do
+        [ -n "$configured_url" ] || continue
+        if [ "$(normalize_vault_url "$configured_url")" = "$VAULT_URL_NORM" ]; then
+            # Two distinct causes need two distinct remedies: an
+            # SX_PROFILE override excludes the profile (activating is a
+            # no-op — the override keeps winning), or the profile is
+            # genuinely not in activeProfiles.
+            if [ -n "${SX_PROFILE:-}" ]; then
+                echo "sx CLI has a profile for this vault, but SX_PROFILE=$SX_PROFILE"
+                echo "excludes it, so 'sx install' will not install this vault's assets."
+                echo "Add the profile to SX_PROFILE (comma-separated) or unset SX_PROFILE."
+            else
+                echo "sx CLI has a profile for this vault, but it is not active,"
+                echo "so 'sx install' will not install this vault's assets."
+                echo "Activate it with:"
+                echo "  sx profile list"
+                echo "  sx profile activate <name>"
+            fi
+            exit 1
+        fi
+    done <<EOF
+$CONFIGURED_URLS
+EOF
+    echo "sx CLI is already configured, but for a different vault:"
+    # Strip userinfo (user:token@) so credential-bearing URLs never land
+    # in logs.
+    printf '%s\n' "$CONFIGURED_URLS" | sed -E 's#://[^/@]+@#://#' | head -5
+    echo
+    echo "To add this vault as a separate profile, run:"
+    echo "  sx profile add <name>   # enter this vault URL when prompted:"
+    echo "  #   $VAULT_URL"
+    # Activation guidance must match how sx will actually resolve the
+    # active set: while SX_PROFILE is set, activate is a no-op because
+    # the override keeps winning.
+    if [ -n "${SX_PROFILE:-}" ]; then
+        echo "  # then add <name> to SX_PROFILE (comma-separated), or unset"
+        echo "  # SX_PROFILE and run: sx profile activate <name>"
+    else
+        echo "  sx profile activate <name>"
+    fi
+    echo
+    echo "See docs/profiles.md in the sx repository for details."
+    exit 1
 fi
 
 echo
 echo "Configuring sx CLI for this vault..."
 echo
-
-# Use the asset vault URL
-VAULT_URL="{{.REPO_URL}}"
 
 echo "Using vault: $VAULT_URL"
 echo

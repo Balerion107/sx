@@ -169,6 +169,55 @@ func TestGenerateInstallScript(t *testing.T) {
 	}
 }
 
+// TestGenerateInstallScript_ConfigFileCheck guards against issue #219:
+// the script's "already configured?" check must use the script-local
+// SX_CONFIG_FILE name (not the env-var-lookalike SX_CONFIG), honor the
+// real SX_CONFIG_DIR/SKILLS_CONFIG_DIR overrides, and not point at the
+// stale legacy sleuth/skills path sx no longer writes.
+func TestGenerateInstallScript_ConfigFileCheck(t *testing.T) {
+	result := generateInstallScript("https://github.com/test/repo.git")
+
+	for _, want := range []string{
+		"SX_CONFIG_FILE=",
+		`[ -n "$SX_CONFIG_DIR" ]`,
+		`[ -n "$SKILLS_CONFIG_DIR" ]`,
+		"Library/Application Support/sx/config.json",
+		"${XDG_CONFIG_HOME:-$HOME/.config}/sx/config.json",
+		"${APPDATA:-$HOME/AppData/Roaming}/sx/config.json",
+		"MINGW*|MSYS*|CYGWIN*",
+		`[ -f "$SX_CONFIG_FILE" ]`,
+		// The "already configured" check must compare this vault's URL
+		// against each configured repositoryUrl value (normalized), not
+		// grep the file for a substring — and a different vault's config
+		// is not success.
+		"normalize_vault_url",
+		`s#\.git$##`,
+		`s#^git@([^:]+):#https://\1/#`,
+		`"repositoryUrl"`,
+		// The remediation must use the interactive profile add flow: the
+		// non-interactive `SX_PROFILE=<name> sx init` path silently clears
+		// the global force-enabled/disabled client lists.
+		"sx profile add <name>",
+		"sx profile activate <name>",
+		// Credential-bearing URLs must not be echoed verbatim.
+		`s#://[^/@]+@#://#`,
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("generateInstallScript() should contain %q", want)
+		}
+	}
+
+	if strings.Contains(result, ".config/sleuth/skills") {
+		t.Error("generateInstallScript() still references the stale legacy config path")
+	}
+	if strings.Contains(result, `"$SX_CONFIG"`) {
+		t.Error("generateInstallScript() still uses the misleading SX_CONFIG variable")
+	}
+	if strings.Index(result, "VAULT_URL=") > strings.Index(result, `normalize_vault_url "$VAULT_URL"`) {
+		t.Error("VAULT_URL must be assigned before the already-configured check uses it")
+	}
+}
+
 func TestGenerateReadme(t *testing.T) {
 	repoURL := "https://github.com/test/repo.git"
 	result := generateReadme(repoURL)
