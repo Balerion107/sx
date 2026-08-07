@@ -95,6 +95,7 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 	cases := []struct {
 		name        string
 		configJSON  string
+		extraEnv    []string
 		wantExit    int
 		wantOutputs []string
 	}{
@@ -142,6 +143,24 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			wantOutputs: []string{"already configured for this vault"},
 		},
 		{
+			// SX_PROFILE overrides the active set outright on sx's read
+			// side, so a file-active profile it excludes must not count.
+			name:        "SX_PROFILE excluding the matching profile exits 1",
+			configJSON:  multiProfileConfig([]string{"other", "work"}, "https://github.com/acme/other", "git@github.com:acme/vault.git"),
+			extraEnv:    []string{"SX_PROFILE=other"},
+			wantExit:    1,
+			wantOutputs: []string{"not active"},
+		},
+		{
+			// …and a profile it includes counts even when the file's
+			// activeProfiles doesn't list it.
+			name:        "SX_PROFILE selecting the matching profile exits 0",
+			configJSON:  multiProfileConfig([]string{"other"}, "https://github.com/acme/other", "git@github.com:acme/vault.git"),
+			extraEnv:    []string{"SX_PROFILE=work"},
+			wantExit:    0,
+			wantOutputs: []string{"already configured for this vault"},
+		},
+		{
 			name:       "no profile matches lists every configured vault",
 			configJSON: multiProfileConfig([]string{"other"}, "https://github.com/acme/other", "https://github.com/acme/third"),
 			wantExit:   1,
@@ -169,10 +188,21 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 			}
 
 			cmd := exec.Command("bash", scriptPath)
-			cmd.Env = append(os.Environ(),
+			// Strip any host SX_PROFILE so only the case's extraEnv can
+			// set it — the script honors it, so a stray value would
+			// change the non-override cases.
+			env := make([]string, 0, len(os.Environ()))
+			for _, kv := range os.Environ() {
+				if strings.HasPrefix(kv, "SX_PROFILE=") {
+					continue
+				}
+				env = append(env, kv)
+			}
+			cmd.Env = append(env,
 				"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"SX_CONFIG_DIR="+cfgDir,
 			)
+			cmd.Env = append(cmd.Env, tc.extraEnv...)
 			out, err := cmd.CombinedOutput()
 
 			exit := 0

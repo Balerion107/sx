@@ -69,13 +69,25 @@ if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
     # URLs of ACTIVE profiles only. sx merges assets from every profile
     # in activeProfiles — not just the default — so a match in ANY
     # active profile is success, while a match in an inactive profile
-    # still installs nothing and must not green-check. Parsed from sx's
+    # still installs nothing and must not green-check. A comma-separated
+    # SX_PROFILE overrides the active set outright, exactly as sx's own
+    # read side resolves it (GetActiveProfileNames). Parsed from sx's
     # pretty-printed config: activeProfiles is a flat name array, each
     # 4-space-indented profile block carries its own repositoryUrl, and
-    # when no active profile resolves we fall back to the top-level
-    # (default-profile) URL sx writes for old binaries.
-    ACTIVE_URLS="$(awk '
-        /^  "activeProfiles": \[/ { inlist = 1; next }
+    # when nothing resolves (and no override is set) we fall back to the
+    # top-level (default-profile) URL sx writes for old binaries.
+    ACTIVE_URLS="$(awk -v override="${SX_PROFILE:-}" '
+        BEGIN {
+            if (override != "") {
+                n = split(override, parts, ",")
+                for (i = 1; i <= n; i++) {
+                    p = parts[i]; gsub(/^[ \t]+|[ \t]+$/, "", p)
+                    if (p != "") { active[p] = 1 }
+                }
+                haveOverride = 1
+            }
+        }
+        !haveOverride && /^  "activeProfiles": \[/ { inlist = 1; next }
         inlist && /^  \]/         { inlist = 0; next }
         inlist {
             name = $0; sub(/^[ \t]+/, "", name); sub(/,$/, "", name); gsub(/"/, "", name)
@@ -94,7 +106,7 @@ if [ -n "$VAULT_URL" ] && [ -f "$SX_CONFIG_FILE" ]; then
         END {
             found = 0
             for (p in urls) if (p in active) { print urls[p]; found = 1 }
-            if (!found && top != "") print top
+            if (!found && !haveOverride && top != "") print top
         }
     ' "$SX_CONFIG_FILE" || true)"
     while IFS= read -r active_url; do
