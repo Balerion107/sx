@@ -187,28 +187,37 @@ func (c *Client) Fetch(ctx context.Context, repoPath string) error {
 	return nil
 }
 
-// repoSelectingEnv are variables that select a repository before any
-// discovery happens. Git exports them to hook processes and to
-// rebase/bisect helpers, so an sx invoked from inside a git hook
+// repoSelectingEnv are variables that select or redirect a repository
+// before any discovery happens. Git exports them to hook processes and
+// to rebase/bisect helpers, so an sx invoked from inside a git hook
 // inherits them — and an inherited GIT_DIR outranks both cmd.Dir and
-// GIT_CEILING_DIRECTORIES, silently redirecting a cache-directed
-// command at the caller's own repository. Filtered out rather than set
-// to empty: git's "unset vs empty" semantics differ by version (the
+// GIT_CEILING_DIRECTORIES, silently redirecting a command at the
+// caller's own repository, while GIT_INDEX_FILE/GIT_WORK_TREE would
+// make even a clone write outside its destination. Stripped for every
+// invocation (see execGitCommandWithEnv), and filtered out rather than
+// set to empty: git's "unset vs empty" semantics differ by version (the
 // same reasoning documented for GIT_ASKPASS in command.go).
-var repoSelectingEnv = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"}
+var repoSelectingEnv = []string{
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_COMMON_DIR",
+}
 
 // commandInRepo builds a git command that runs inside repoPath and can
-// never escape it: inherited repo-selecting variables are stripped, and
-// GIT_CEILING_DIRECTORIES stops repository discovery at the parent, so
-// a directory whose .git is unusable errors out instead of resolving to
-// an enclosing repository (a dotfiles-managed $HOME, a hand-set
-// SX_CACHE_DIR inside a checkout) and reading or mutating it. Every
-// command addressed at a repo root must use this rather than setting
-// cmd.Dir directly, so the guard cannot be missed one method at a time.
+// never escape it: GIT_CEILING_DIRECTORIES stops repository discovery
+// at the parent, so a directory whose .git is unusable errors out
+// instead of resolving to an enclosing repository (a dotfiles-managed
+// $HOME, a hand-set SX_CACHE_DIR inside a checkout) and reading or
+// mutating it. Inherited repo-selecting env vars are already stripped
+// for every command by execGitCommandWithEnv. Every command addressed
+// at a repo root must use this rather than setting cmd.Dir directly, so
+// the guard cannot be missed one method at a time.
 func (c *Client) commandInRepo(ctx context.Context, repoPath string, args ...string) *exec.Cmd {
 	cmd := c.command(ctx, args...)
 	cmd.Dir = repoPath
-	cmd.Env = withoutEnv(cmd.Env, repoSelectingEnv)
 	cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(repoPath))
 	return cmd
 }
@@ -413,11 +422,18 @@ func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
 //
 // repoPath must be an absolute path to a non-bare clone (a directory
 // with .git directly inside it) — the layout sx's own clones always
-// have. A bare repository or relative path reports false, and callers
-// treat false as license to discard the directory.
+// have. A bare repository reports false, and callers treat false as
+// license to discard the directory — which is why false is returned
+// only when git itself answered: a git that could not run at all (fork
+// failure, missing binary mid-upgrade) must never read as "corrupt,
+// delete it".
 func (c *Client) IsRepo(ctx context.Context, repoPath string) bool {
-	cmd := c.command(ctx, "rev-parse", "--resolve-git-dir", filepath.Join(repoPath, ".git"))
-	return cmd.Run() == nil
+	err := c.command(ctx, "rev-parse", "--resolve-git-dir", filepath.Join(repoPath, ".git")).Run()
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return !errors.As(err, &exitErr)
 }
 
 // GetRemoteURL returns the remote URL for the repository (typically 'origin')

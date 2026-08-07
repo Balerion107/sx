@@ -20,7 +20,14 @@ func execGitCommandWithEnv(ctx context.Context, sshKeyPath string, extraEnv []st
 	// GIT_ASKPASS/SSH_ASKPASS because their "unset vs empty" semantics
 	// vary between git versions, and the terminal-prompt path is already
 	// closed.
-	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	//
+	// Repo-selecting variables are stripped from the inherited
+	// environment for every invocation — clone, probes, and repo-
+	// addressed commands alike — because git exports them to hook
+	// processes and rebase/bisect helpers, and an inherited GIT_DIR or
+	// GIT_WORK_TREE would redirect any of these commands at the caller's
+	// own repository (or make a clone write its index elsewhere).
+	env := append(withoutEnv(os.Environ(), repoSelectingEnv), "GIT_TERMINAL_PROMPT=0")
 	env = append(env, extraEnv...)
 
 	if sshKeyPath != "" {

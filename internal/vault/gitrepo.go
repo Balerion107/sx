@@ -356,7 +356,14 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 		return nil
 	}
 
-	if _, err := os.Stat(filepath.Join(g.repoPath, ".git")); os.IsNotExist(err) {
+	_, statErr := os.Stat(filepath.Join(g.repoPath, ".git"))
+	if statErr != nil && !os.IsNotExist(statErr) {
+		// A stat failure that isn't "missing" (EACCES, say) is not
+		// evidence of a corrupt clone — surface it rather than fall into
+		// a branch that deletes the clone.
+		return fmt.Errorf("failed to inspect vault clone: %w", statErr)
+	}
+	if os.IsNotExist(statErr) {
 		// Repository doesn't exist, clone it
 		if err := g.clone(ctx); err != nil {
 			return err

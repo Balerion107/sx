@@ -77,4 +77,46 @@ func TestRepoCommandsDoNotEscapeToAncestor(t *testing.T) {
 	if got := run(ancestor, "rev-parse", "HEAD"); got != ancestorSHA {
 		t.Fatalf("ancestor HEAD changed via GIT_DIR: %q -> %q", ancestorSHA, got)
 	}
+
+	// Clone (the command that creates and repairs caches) and HasCommit
+	// (the gatekeeper that decides whether to skip cloning) must also be
+	// immune: GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY would make a clone
+	// write outside its destination and make cat-file answer from the
+	// wrong object store.
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(ancestor, ".git", "index"))
+	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(ancestor, ".git", "objects"))
+	if client.HasCommit(ctx, cache, ancestorSHA) {
+		t.Fatal("HasCommit answered from an inherited object directory")
+	}
+	cloneDst := filepath.Join(t.TempDir(), "clone")
+	if err := client.Clone(ctx, ancestor, cloneDst); err != nil {
+		t.Fatalf("Clone with inherited repo-selecting env failed: %v", err)
+	}
+	if got := run(cloneDst, "rev-parse", "HEAD"); got != ancestorSHA {
+		t.Fatalf("clone HEAD = %q, want %q", got, ancestorSHA)
+	}
+}
+
+// TestIsRepoDoesNotReportUnrunnableGitAsCorrupt: callers respond to a
+// false IsRepo by deleting the directory, so "git could not run at all"
+// must never read as "not a repository".
+func TestIsRepoDoesNotReportUnrunnableGitAsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient()
+	ctx := context.Background()
+
+	// Genuinely corrupt, git answers: false.
+	if client.IsRepo(ctx, dir) {
+		t.Fatal("an empty .git directory must not count as a repository")
+	}
+
+	// git can't be executed at all: must NOT read as corrupt.
+	t.Setenv("PATH", filepath.Join(dir, "no-such-dir"))
+	if !client.IsRepo(ctx, dir) {
+		t.Fatal("an unrunnable git must not be reported as a corrupt repository")
+	}
 }
