@@ -607,7 +607,7 @@ func (g *GitVault) MigrateStorage(ctx context.Context) (*MigrationResult, error)
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return nil, fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 
@@ -629,7 +629,7 @@ func (g *GitVault) PlanStorageMigration(ctx context.Context) (*MigrationPlan, er
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return nil, fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	return planStorageMigration(g.repoPath)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sleuth-io/sx/v2/internal/asset"
 	"github.com/sleuth-io/sx/v2/internal/cache"
@@ -308,6 +309,23 @@ func TestGitVaultCloneOrUpdateRecoversCorruptClone(t *testing.T) {
 	}
 	if !v.gitClient.IsRepo(context.Background(), v.repoPath) {
 		t.Fatal("corrupt vault clone was not re-cloned")
+	}
+
+	// The other interrupted shape: content without .git. A bare clone
+	// can never succeed there (git refuses non-empty destinations), so
+	// it must take the same sentinel/repair path.
+	if err := os.RemoveAll(filepath.Join(v.repoPath, ".git")); err != nil {
+		t.Fatalf("failed to remove .git: %v", err)
+	}
+	v.lastSynced = time.Time{} // bypass the sync TTL for the next call
+	if err := v.cloneOrUpdate(context.Background()); !errors.Is(err, errCorruptVaultClone) {
+		t.Fatalf("cloneOrUpdate on stale dir = %v, want errCorruptVaultClone", err)
+	}
+	if err := v.cloneOrUpdateLocked(context.Background()); err != nil {
+		t.Fatalf("cloneOrUpdateLocked on stale dir failed: %v", err)
+	}
+	if !v.gitClient.IsRepo(context.Background(), v.repoPath) {
+		t.Fatal("stale vault directory was not re-cloned")
 	}
 }
 

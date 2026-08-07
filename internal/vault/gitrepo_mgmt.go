@@ -49,7 +49,7 @@ func (g *GitVault) runInVaultTx(ctx context.Context, commitMsg string, fn func(v
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {
@@ -421,7 +421,7 @@ func (g *GitVault) RecordUsageEvents(ctx context.Context, events []mgmt.UsageEve
 	// would be overwritten") and pushes would stall — under multi-
 	// writer contention this is the common case, not the edge case.
 	// This matches runInVaultTx's clone-then-mutate ordering.
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := ensureSxDir(g.repoPath); err != nil {

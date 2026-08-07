@@ -130,10 +130,11 @@ func (g *GitVault) Authenticate(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// acquireFileLock acquires a file lock for the git repository to prevent
-// cross-process conflicts. It delegates to acquireRepoCacheLock so the
-// lock file path has exactly one definition and vault-level operations
-// stay mutually exclusive with source-git fetches of the same repo.
+// acquireFileLock serializes concurrent access to this vault's cache
+// directory across goroutines and processes. It delegates to
+// acquireRepoCacheLock only so the lock-file path expression has a
+// single definition; vault clones and source-git clones live in
+// separate directories with separate locks and do not contend.
 func (g *GitVault) acquireFileLock(ctx context.Context) (*flock.Flock, error) {
 	return acquireRepoCacheLock(ctx, g.repoPath)
 }
@@ -385,6 +386,12 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 		return fmt.Errorf("failed to inspect vault clone: %w", statErr)
 	}
 	if os.IsNotExist(statErr) {
+		// A directory with content but no .git (an interrupted repair)
+		// can never be cloned into — git refuses non-empty destinations
+		// — so it needs the locked repair too, not a doomed clone.
+		if entries, err := os.ReadDir(g.repoPath); err == nil && len(entries) > 0 {
+			return errCorruptVaultClone
+		}
 		// Repository doesn't exist, clone it
 		if err := g.clone(ctx); err != nil {
 			return err
