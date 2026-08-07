@@ -144,12 +144,14 @@ func TestInstallScriptConfigCheckExecution(t *testing.T) {
 		},
 		{
 			// SX_PROFILE overrides the active set outright on sx's read
-			// side, so a file-active profile it excludes must not count.
+			// side, so a file-active profile it excludes must not count —
+			// and the remedy is fixing SX_PROFILE, not activating (which
+			// is a no-op while the override keeps winning).
 			name:        "SX_PROFILE excluding the matching profile exits 1",
 			configJSON:  multiProfileConfig([]string{"other", "work"}, "https://github.com/acme/other", "git@github.com:acme/vault.git"),
 			extraEnv:    []string{"SX_PROFILE=other"},
 			wantExit:    1,
-			wantOutputs: []string{"not active"},
+			wantOutputs: []string{"SX_PROFILE=other", "comma-separated) or unset SX_PROFILE"},
 		},
 		{
 			// …and a profile it includes counts even when the file's

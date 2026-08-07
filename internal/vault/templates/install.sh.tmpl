@@ -122,11 +122,21 @@ EOF
     while IFS= read -r configured_url; do
         [ -n "$configured_url" ] || continue
         if [ "$(normalize_vault_url "$configured_url")" = "$VAULT_URL_NORM" ]; then
-            echo "sx CLI has a profile for this vault, but it is not active,"
-            echo "so 'sx install' will not install this vault's assets."
-            echo "Activate it with:"
-            echo "  sx profile list"
-            echo "  sx profile activate <name>"
+            # Two distinct causes need two distinct remedies: an
+            # SX_PROFILE override excludes the profile (activating is a
+            # no-op — the override keeps winning), or the profile is
+            # genuinely not in activeProfiles.
+            if [ -n "${SX_PROFILE:-}" ]; then
+                echo "sx CLI has a profile for this vault, but SX_PROFILE=$SX_PROFILE"
+                echo "excludes it, so 'sx install' will not install this vault's assets."
+                echo "Add the profile to SX_PROFILE (comma-separated) or unset SX_PROFILE."
+            else
+                echo "sx CLI has a profile for this vault, but it is not active,"
+                echo "so 'sx install' will not install this vault's assets."
+                echo "Activate it with:"
+                echo "  sx profile list"
+                echo "  sx profile activate <name>"
+            fi
             exit 1
         fi
     done <<EOF
