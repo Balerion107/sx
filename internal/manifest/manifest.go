@@ -713,6 +713,20 @@ func Parse(data []byte) (*Manifest, error) {
 	return &m, nil
 }
 
+// isFullCommitSHA reports whether ref is a full 40-character lowercase
+// hex commit SHA — the only ref form the lock file contract accepts.
+func isFullCommitSHA(ref string) bool {
+	if len(ref) != 40 {
+		return false
+	}
+	for _, c := range ref {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // ReadFile reads and parses the manifest file at the given absolute path.
 func ReadFile(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
@@ -753,6 +767,20 @@ func Marshal(m *Manifest) ([]byte, error) {
 		return nil, fmt.Errorf("failed to encode manifest: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// ValidateSourceGitRef enforces the lock contract's ref form on the
+// asset row being introduced: only a pinned 40-hex lowercase commit SHA
+// survives lock-file validation, so the command supplying anything else
+// must fail, naming the asset. Deliberately a per-row check invoked at
+// the points where a ref enters (asset upsert, legacy migration) rather
+// than a whole-file check on read or write — a pre-existing hand-edited
+// bad ref must not brick unrelated commands or block its own repair.
+func ValidateSourceGitRef(assetName string, sg *SourceGit) error {
+	if sg == nil || isFullCommitSHA(sg.Ref) {
+		return nil
+	}
+	return fmt.Errorf("asset %q: source-git ref must be a full 40-character lowercase commit SHA, got %q (branch and tag names are not supported — pin the exact commit)", assetName, sg.Ref)
 }
 
 // Write writes the manifest to the given absolute path atomically.

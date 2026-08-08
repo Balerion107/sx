@@ -404,10 +404,12 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// the tracker, download anything, or write to client directories.
 	if dryRun {
 		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, skips)
+		printDryRunSkippedLockAssets(cmd.OutOrStdout(), profileLocks)
 		return nil
 	}
 
 	reportScopeSkips(skips, styledOut)
+	reportSkippedLockAssets(profileLocks, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)
@@ -428,7 +430,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	if hadHardFetchFailure(profileLocks) {
 		styledOut.Warning("Skipping removed-asset cleanup because one or more profiles failed to fetch.")
 	} else {
-		cleanupRemovedAssets(ctx, tracker, sortedAssets, env.GitContext, env.CurrentScope, env.Clients, styledOut)
+		cleanupRemovedAssets(ctx, tracker, sortedAssets, skippedAssetNames(profileLocks), env.GitContext, env.CurrentScope, env.Clients, styledOut)
 	}
 
 	// Early exit if nothing to install
@@ -522,7 +524,7 @@ func assetKeyForInstall(asset *lockfile.Asset, currentScope *scope.Scope) assets
 }
 
 // cleanupRemovedAssets removes assets that are no longer in the lock file from all clients
-func cleanupRemovedAssets(ctx context.Context, tracker *assets.Tracker, sortedAssets []*lockfile.Asset, gitContext *gitutil.GitContext, currentScope *scope.Scope, targetClients []clients.Client, styledOut *ui.Output) {
+func cleanupRemovedAssets(ctx context.Context, tracker *assets.Tracker, sortedAssets []*lockfile.Asset, skippedNames map[string]bool, gitContext *gitutil.GitContext, currentScope *scope.Scope, targetClients []clients.Client, styledOut *ui.Output) {
 	// Find assets in tracker for this scope that are no longer in lock file
 	key := assets.NewAssetKey("", currentScope.Type, currentScope.RepoURL, currentScope.RepoPath)
 	currentInScope := tracker.FindByScope(key.Repository, key.Path)
@@ -536,6 +538,12 @@ func cleanupRemovedAssets(ctx context.Context, tracker *assets.Tracker, sortedAs
 	lockFileNames := make(map[string]bool)
 	for _, art := range sortedAssets {
 		lockFileNames[art.Name] = true
+	}
+	// Assets skipped at fetch time (e.g. an unprocessable source-git
+	// ref) are broken, not removed: leave their installs alone rather
+	// than turning one bad manifest entry into a fleet-wide uninstall.
+	for name := range skippedNames {
+		lockFileNames[name] = true
 	}
 
 	var removedAssets []assets.InstalledAsset

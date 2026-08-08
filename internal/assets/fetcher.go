@@ -35,7 +35,8 @@ func NewAssetFetcher(vault vaultpkg.Vault, vaultKey string) *AssetFetcher {
 
 // FetchAsset downloads a single asset
 func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first
+	// Try disk cache first. Lock-file validation pins every source-git
+	// ref to a full commit SHA, so a cached name@version is immutable.
 	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
 	if err == nil {
 		// Cache hit, extract metadata and return
@@ -86,7 +87,8 @@ func (f *AssetFetcher) FetchAsset(ctx context.Context, asset *lockfile.Asset) (z
 
 // FetchAssetWithProgress downloads a single asset with progress bar
 func (f *AssetFetcher) FetchAssetWithProgress(ctx context.Context, asset *lockfile.Asset, bar *progressbar.ProgressBar) (zipData []byte, meta *metadata.Metadata, err error) {
-	// Try disk cache first
+	// Try disk cache first. Lock-file validation pins every source-git
+	// ref to a full commit SHA, so a cached name@version is immutable.
 	zipData, err = cache.LoadAssetFromDisk(asset.Name, asset.Version, f.vaultKey)
 	if err == nil {
 		// Cache hit, extract metadata and return

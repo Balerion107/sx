@@ -1053,6 +1053,16 @@ func commonClearAssetInstallations(vaultRoot string, actor mgmt.Actor, assetName
 	})
 }
 
+// hasOrgWideTarget reports whether any target is the exclusive org-wide kind.
+func hasOrgWideTarget(targets []InstallTarget) bool {
+	for _, t := range targets {
+		if t.Kind == InstallKindOrg {
+			return true
+		}
+	}
+	return false
+}
+
 // commonSetAssetInstallations applies a batch of install targets to the named
 // asset in a single manifest transaction (one commit/push for git vaults).
 // appendMode merges the targets into the asset's existing scopes; otherwise the
@@ -1082,12 +1092,7 @@ func commonSetAssetInstallations(ctx context.Context, vaultRoot string, actor mg
 	// opt out of the interactive RBAC; a normal user-driven scope change enforces.
 	enforce := !scopeRBACBypassed(ctx)
 
-	orgWide := false
-	for _, t := range targets {
-		if t.Kind == InstallKindOrg {
-			orgWide = true
-		}
-	}
+	orgWide := hasOrgWideTarget(targets)
 
 	var skipped []SkippedTarget
 	err := withManifestEvents(vaultRoot, actor, func(m *manifest.Manifest) ([]mgmt.AuditEvent, error) {
@@ -1136,6 +1141,9 @@ func commonSetAssetInstallations(ctx context.Context, vaultRoot string, actor mg
 		var asset *manifest.Asset
 		var recoveredAuditData map[string]any
 		if published != nil {
+			if err := validateAssetRef(published); err != nil {
+				return nil, err
+			}
 			asset = upsertAssetInheritingScopesTx(m, published)
 		} else if asset = m.FindAsset(assetName); asset == nil {
 			recovered, ok, err := assetFromStorage(vaultRoot, assetName)
@@ -1385,6 +1393,9 @@ func scopeDedupKey(s manifest.Scope) string {
 // output channel. It's the actor-aware counterpart used by the file-backed
 // SetInstallations methods.
 func commonSetInstallations(vaultRoot string, actor mgmt.Actor, asset *lockfile.Asset) error {
+	if err := validateAssetRef(asset); err != nil {
+		return err
+	}
 	m, err := loadManifest(vaultRoot)
 	if err != nil {
 		return err

@@ -98,6 +98,7 @@ const (
 	StatusOutdated     AssetStatus = "outdated"      // Installed but different version
 	StatusNotInstalled AssetStatus = "not_installed" // In lock file but not installed
 	StatusOrphaned     AssetStatus = "orphaned"      // Installed but not in lock file
+	StatusSkipped      AssetStatus = "skipped"       // In lock file but unprocessable (e.g. unpinned source-git ref)
 )
 
 type AssetInfo struct {
@@ -107,6 +108,26 @@ type AssetInfo struct {
 	Type             string      `json:"type"`
 	Clients          []string    `json:"clients"`
 	Status           AssetStatus `json:"status"`
+
+	// Skipped marks membership in the install-time skipped set (an
+	// unpinned source-git ref, or a dependent of one). An installed
+	// copy keeps its real status — cleanup deliberately spares it — so
+	// Skipped is the annotation that its vault entry is frozen.
+	// SkipReason carries the same reason string installs report.
+	Skipped    bool   `json:"skipped,omitempty"`
+	SkipReason string `json:"skipReason,omitempty"`
+}
+
+// skipStatusFor maps an asset in the install-time skipped set to its
+// displayed status. An installed (or outdated) copy keeps its real
+// status: removed-asset cleanup deliberately spares skipped assets, so
+// the files are on disk and working, and reporting them as "skipped"
+// would contradict that. Anything else becomes StatusSkipped.
+func skipStatusFor(status AssetStatus) AssetStatus {
+	if status == StatusInstalled || status == StatusOutdated {
+		return status
+	}
+	return StatusSkipped
 }
 
 // NewConfigCommand creates the config command
@@ -518,6 +539,21 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 	// Load tracker for installation status
 	tracker, _ := assets.LoadTracker()
 
+	// Mirror install's fetch-time extraction — including transitive
+	// dependents — so this view and the install agree on which assets
+	// are skipped, while keeping every row listed. Run on a copy (the
+	// listing below must still show the skipped rows), and carry the
+	// per-row reason so every surface shares one string.
+	skippedReasons := make(map[string]string)
+	{
+		clone := *lf
+		clone.Assets = append([]lockfile.Asset(nil), lf.Assets...)
+		clone.SkippedAssets = nil
+		for _, a := range clone.ExtractInvalidSourceGitAssets() {
+			skippedReasons[a.Key()] = skippedAssetReason(a)
+		}
+	}
+
 	// Group assets by scope
 	grouped := groupAssetsByScope(lf, currentScope, showAll)
 
@@ -543,6 +579,10 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 			}
 
 			status, installedVersion, clients := determineAssetStatus(latest, scopeName, tracker)
+			skipReason := skippedReasons[latest.Key()]
+			if skipReason != "" {
+				status = skipStatusFor(status)
+			}
 
 			info := AssetInfo{
 				Name:             latest.Name,
@@ -551,6 +591,8 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 				Status:           status,
 				Clients:          clients,
 				InstalledVersion: installedVersion,
+				Skipped:          skipReason != "",
+				SkipReason:       skipReason,
 			}
 
 			s.Assets = append(s.Assets, info)
@@ -730,6 +772,13 @@ func printText(output ConfigOutput, showAll bool) error {
 					statusStr = out.MutedText(" (not installed)")
 				case StatusOrphaned:
 					statusStr = out.ErrorText(" (removed from lock file)")
+				case StatusSkipped:
+					statusStr = out.ErrorText(fmt.Sprintf(" (skipped: %s)", asset.SkipReason))
+				}
+				if asset.Skipped && asset.Status != StatusSkipped {
+					// Installed copy of a skipped vault entry: the real
+					// status stands, but installs won't update it.
+					statusStr += out.ErrorText(fmt.Sprintf(" (vault entry skipped: %s; frozen at installed version)", asset.SkipReason))
 				}
 
 				out.Printf("  - %s %s [%s]%s%s\n",

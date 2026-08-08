@@ -498,3 +498,76 @@ func TestMarshalKeepsLegacyPortedTeamRepoLiteral(t *testing.T) {
 		t.Fatalf("repositories = %v, want %v (legacy row literal, cleanup only)", team.Repositories, want)
 	}
 }
+
+// TestValidateSourceGitRef pins the per-row ref contract check invoked
+// where a ref enters (asset upsert, legacy migration): only pinned
+// 40-hex SHAs pass, and the error names the asset.
+func TestValidateSourceGitRef(t *testing.T) {
+	if err := ValidateSourceGitRef("a", nil); err != nil {
+		t.Fatalf("nil source-git must pass: %v", err)
+	}
+	if err := ValidateSourceGitRef("a", &SourceGit{Ref: strings.Repeat("a", 40)}); err != nil {
+		t.Fatalf("pinned SHA must pass: %v", err)
+	}
+	err := ValidateSourceGitRef("my-skill", &SourceGit{Ref: "main"})
+	if err == nil {
+		t.Fatal("branch name must be rejected")
+	}
+	if !strings.Contains(err.Error(), "my-skill") {
+		t.Fatalf("error should name the asset, got: %v", err)
+	}
+}
+
+// TestParseToleratesNonSHASourceGitRef: reads must stay permissive so a
+// vault with a hand-authored bad ref is repairable with sx commands
+// rather than bricked wholesale.
+func TestParseToleratesNonSHASourceGitRef(t *testing.T) {
+	data := `schema_version = 2
+
+[[assets]]
+name = "my-skill"
+type = "skill"
+version = "1.0.0"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+`
+	if _, err := Parse([]byte(data)); err != nil {
+		t.Fatalf("Parse must tolerate a bad ref for repairability: %v", err)
+	}
+}
+
+// TestMigrationCarriesNonSHASourceGitRef: migration must not decide to
+// delete a shared asset — a legacy entry with a non-SHA ref is carried
+// through verbatim, and the consumer-side lock handling skips (and
+// surfaces) just that asset at install time.
+func TestMigrationCarriesNonSHASourceGitRef(t *testing.T) {
+	root := t.TempDir()
+	lock := `lock-version = "1.0"
+version = "1"
+
+[[assets]]
+name = "bad-ref"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+`
+	if err := os.WriteFile(filepath.Join(root, "sx.lock"), []byte(lock), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, migrated, err := LoadOrMigrate(root)
+	if err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if !migrated {
+		t.Fatal("expected a migration to run")
+	}
+	if len(m.Assets) != 1 || m.Assets[0].Name != "bad-ref" || m.Assets[0].SourceGit == nil || m.Assets[0].SourceGit.Ref != "main" {
+		t.Fatalf("migration should carry the entry verbatim, got %+v", m.Assets)
+	}
+}

@@ -48,6 +48,13 @@ func fetchLockFile(ctx context.Context, vault vaultpkg.Vault, cfg *config.Config
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse lock file: %w", err)
 	}
+	// One hand-authored bad source-git ref must cost the assets that
+	// can't work without it — not fail the whole vault's install. The
+	// skipped assets stay in SkippedAssets so removed-asset cleanup
+	// won't uninstall them; reporting happens after the fetch fan-out
+	// (reportSkippedLockAssets), since this function runs in per-profile
+	// goroutines and must stay out of shared output.
+	lf.ExtractInvalidSourceGitAssets()
 	if err := lf.Validate(); err != nil {
 		return nil, fmt.Errorf("lock file validation failed: %w", err)
 	}

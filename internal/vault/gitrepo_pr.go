@@ -23,7 +23,7 @@ func (g *GitVault) StartPRBranch(ctx context.Context, branch string) error {
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 

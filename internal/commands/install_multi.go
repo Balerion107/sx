@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"sync"
@@ -456,4 +457,78 @@ func downloadAssetsMultiVault(
 	}
 
 	return result, nil
+}
+
+// skippedAssetNames collects the names of assets excluded from
+// installation at fetch time (see LockFile.SkippedAssets); removed-asset
+// cleanup treats them as still present so they are not uninstalled.
+func skippedAssetNames(profileLocks []profileLockFile) map[string]bool {
+	names := make(map[string]bool)
+	for _, pl := range profileLocks {
+		if pl.LockFile == nil {
+			continue
+		}
+		for _, a := range pl.LockFile.SkippedAssets {
+			names[a.Name] = true
+		}
+	}
+	return names
+}
+
+// skippedAssetReason is the single source of the human-readable reason
+// an asset was excluded at lock-fetch time; every surface (install
+// warning, dry-run preview, log) shares it so they cannot drift.
+func skippedAssetReason(a lockfile.Asset) string {
+	if a.HasInvalidSourceGitRef() {
+		return fmt.Sprintf("source-git ref %q is not a pinned 40-character commit SHA — fix it in the vault's sx.toml", a.SourceGit.Ref)
+	}
+	return "it depends on a skipped asset"
+}
+
+// forEachSkippedLockAsset visits each fetch-time-skipped asset once
+// (deduped by name across profiles). Entries whose name a surviving row
+// in the same profile still provides are suppressed: the surviving
+// version installs, so announcing a skip for that name would contradict
+// the install. (They stay in SkippedAssets — cleanup protection must
+// not depend on whether the surviving version applies to this scope.)
+func forEachSkippedLockAsset(profileLocks []profileLockFile, visit func(a lockfile.Asset)) {
+	seen := make(map[string]bool)
+	for _, pl := range profileLocks {
+		if pl.LockFile == nil {
+			continue
+		}
+		surviving := make(map[string]bool, len(pl.LockFile.Assets))
+		for _, a := range pl.LockFile.Assets {
+			surviving[a.Name] = true
+		}
+		for _, a := range pl.LockFile.SkippedAssets {
+			if seen[a.Name] || surviving[a.Name] {
+				continue
+			}
+			seen[a.Name] = true
+			visit(a)
+		}
+	}
+}
+
+// reportSkippedLockAssets surfaces assets excluded at lock-fetch time —
+// once per asset per run, after the fetch fan-out, because fetchLockFile
+// runs in per-profile goroutines and must stay out of shared output.
+// Also logged unconditionally: styledOut is silenced in hook mode (the
+// dominant install path), and the condition persists until the vault
+// owner fixes sx.toml, so the log file must carry the diagnosis.
+func reportSkippedLockAssets(profileLocks []profileLockFile, styledOut *ui.Output) {
+	forEachSkippedLockAsset(profileLocks, func(a lockfile.Asset) {
+		logger.Get().Warn("skipping asset from lock file", "asset", a.Name, "reason", skippedAssetReason(a))
+		styledOut.Warning(fmt.Sprintf("Skipping asset %q: %s", a.Name, skippedAssetReason(a)))
+	})
+}
+
+// printDryRunSkippedLockAssets is the dry-run counterpart: --dry-run is
+// exactly where a user asks "why isn't my asset installing", so the
+// skipped set must not be silently absent from the preview.
+func printDryRunSkippedLockAssets(w io.Writer, profileLocks []profileLockFile) {
+	forEachSkippedLockAsset(profileLocks, func(a lockfile.Asset) {
+		fmt.Fprintf(w, "# skipped %s: %s\n", a.Name, skippedAssetReason(a))
+	})
 }

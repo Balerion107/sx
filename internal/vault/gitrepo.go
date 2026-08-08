@@ -130,34 +130,13 @@ func (g *GitVault) Authenticate(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// acquireFileLock acquires a file lock for the git repository to prevent cross-process conflicts
+// acquireFileLock serializes concurrent access to this vault's cache
+// directory across goroutines and processes. It delegates to
+// acquireRepoCacheLock only so the lock-file path expression has a
+// single definition; vault clones and source-git clones live in
+// separate directories with separate locks and do not contend.
 func (g *GitVault) acquireFileLock(ctx context.Context) (*flock.Flock, error) {
-	// Put lock file in cache directory, not in repo path
-	// Use repo path hash to create unique lock filename
-	cacheDir, err := cache.GetCacheDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cache dir: %w", err)
-	}
-
-	lockFile := filepath.Join(cacheDir, "git-repos", filepath.Base(g.repoPath)+".lock")
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create lock directory: %w", err)
-	}
-
-	fileLock := flock.New(lockFile)
-
-	// Try to acquire the lock with a timeout
-	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
-	if err != nil {
-		return nil, fmt.Errorf("failed to acquire file lock: %w", err)
-	}
-	if !locked {
-		return nil, errors.New("could not acquire file lock (timeout)")
-	}
-
-	return fileLock, nil
+	return acquireRepoCacheLock(ctx, g.repoPath)
 }
 
 // GetLockFile clones or syncs the Git vault, then returns a lock file
@@ -171,7 +150,7 @@ func (g *GitVault) GetLockFile(ctx context.Context, cachedETag string) (content 
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return nil, "", false, fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 
@@ -216,7 +195,7 @@ func (g *GitVault) AddAsset(ctx context.Context, asset *lockfile.Asset, zipData 
 	defer func() { _ = fileLock.Unlock() }()
 
 	// Clone or update repository
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {
@@ -366,6 +345,48 @@ func (g *GitVault) VerifyIntegrity(data []byte, hashes map[string]string, size i
 	return nil
 }
 
+// errCorruptVaultClone means the vault clone's .git exists but git does
+// not recognize it (an interrupted clone). Repairing requires deleting
+// the clone, which only lock-holding callers may do.
+var errCorruptVaultClone = errors.New("vault clone is corrupt; run a locked sync (e.g. sx install) to repair it")
+
+// cloneOrUpdateLocked is cloneOrUpdate plus destructive repair of a
+// corrupt clone or partial working tree. The caller MUST hold the vault
+// file lock: both repairs rewrite the shared directory, which must
+// never race an unlocked reader — or a lock-holding mutator mid-change —
+// in another process.
+func (g *GitVault) cloneOrUpdateLocked(ctx context.Context) error {
+	err := g.cloneOrUpdate(ctx)
+	if errors.Is(err, errCorruptVaultClone) {
+		if rmErr := os.RemoveAll(g.repoPath); rmErr != nil {
+			return fmt.Errorf("failed to remove corrupt vault clone: %w", rmErr)
+		}
+		// The directory is gone now, so this takes the fresh-clone branch.
+		err = g.cloneOrUpdate(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Partial-worktree heal, probed only here: with the lock held no
+	// mutator is mid-change, so a deleted tracked file genuinely means
+	// an interrupted delete (a pull reports up-to-date and restores
+	// nothing). Unlocked reads never probe — a concurrent mutation's
+	// pre-stage deletions must neither be force-reverted nor turned
+	// into read failures; modified and untracked files never trigger
+	// the restore either way.
+	deleted, err := g.gitClient.HasDeletedWorktreeFiles(ctx, g.repoPath)
+	if err != nil {
+		return err
+	}
+	if deleted {
+		if fcErr := g.gitClient.ForceCheckout(ctx, g.repoPath, "HEAD"); fcErr != nil {
+			return fmt.Errorf("failed to restore vault working tree: %w", fcErr)
+		}
+	}
+	return nil
+}
+
 // cloneOrUpdate clones the repository if it doesn't exist, or pulls updates if it does.
 // Only performs the operation once per CLI execution to avoid redundant network calls.
 // The mutex is held for the duration of the clone/pull so concurrent MCP tool
@@ -378,7 +399,20 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 		return nil
 	}
 
-	if _, err := os.Stat(filepath.Join(g.repoPath, ".git")); os.IsNotExist(err) {
+	_, statErr := os.Stat(filepath.Join(g.repoPath, ".git"))
+	if statErr != nil && !os.IsNotExist(statErr) {
+		// A stat failure that isn't "missing" (EACCES, say) is not
+		// evidence of a corrupt clone — surface it rather than fall into
+		// a branch that deletes the clone.
+		return fmt.Errorf("failed to inspect vault clone: %w", statErr)
+	}
+	if os.IsNotExist(statErr) {
+		// A directory with content but no .git (an interrupted repair)
+		// can never be cloned into — git refuses non-empty destinations
+		// — so it needs the locked repair too, not a doomed clone.
+		if entries, err := os.ReadDir(g.repoPath); err == nil && len(entries) > 0 {
+			return errCorruptVaultClone
+		}
 		// Repository doesn't exist, clone it
 		if err := g.clone(ctx); err != nil {
 			return err
@@ -386,6 +420,17 @@ func (g *GitVault) cloneOrUpdate(ctx context.Context) error {
 		if err := g.ensureUsageMergeAttributes(); err != nil {
 			return err
 		}
+	} else if !g.gitClient.IsRepo(ctx, g.repoPath) {
+		// An interrupted clone left a .git that git doesn't recognize.
+		// A corrupt clone must not masquerade as an empty vault: an
+		// "empty" sync yields no lock file, which install treats as a
+		// benign empty vault and uninstalls every asset. Repair is
+		// destructive and therefore NOT done here — this method is
+		// called from many read paths that hold no lock, and an
+		// unlocked RemoveAll could delete a clone another process is
+		// mid-write in. Locked flows repair via cloneOrUpdateLocked;
+		// unlocked reads surface the error until one does.
+		return errCorruptVaultClone
 	} else {
 		// Ensure the union-merge attribute for usage JSONL is in place
 		// BEFORE pulling: two writers appending to the same monthly
@@ -814,7 +859,7 @@ func (g *GitVault) SetInstallations(ctx context.Context, asset *lockfile.Asset, 
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {
@@ -845,7 +890,7 @@ func (g *GitVault) InheritInstallations(ctx context.Context, asset *lockfile.Ass
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {
@@ -874,7 +919,7 @@ func (g *GitVault) RemoveAsset(ctx context.Context, assetName, version string, d
 	defer func() { _ = fileLock.Unlock() }()
 
 	// Clone or update repository
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {
@@ -951,7 +996,7 @@ func (g *GitVault) RenameAsset(ctx context.Context, oldName, newName string) err
 	defer func() { _ = fileLock.Unlock() }()
 
 	// Clone or update repository
-	if err := g.cloneOrUpdate(ctx); err != nil {
+	if err := g.cloneOrUpdateLocked(ctx); err != nil {
 		return fmt.Errorf("failed to clone/update repository: %w", err)
 	}
 	if err := g.ensureMigratedLocked(ctx); err != nil {

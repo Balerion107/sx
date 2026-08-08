@@ -13,6 +13,95 @@ var (
 	gitCommitSHARegex = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+// ExtractInvalidSourceGitAssets moves every asset row whose source-git
+// ref is not a pinned 40-hex commit SHA out of Assets and into
+// SkippedAssets, along with — to a fixpoint — every row left with a
+// dependency that the extraction broke (Validate would reject the whole
+// lock file for the dangling reference).
+//
+// This is the enforcement point for the ref contract that a real
+// command path actually reaches: source-git is a hand-authored manifest
+// feature (no sx command constructs one), so a bad ref can only be
+// discovered when the resolved lock file is consumed. Extraction lets
+// Validate pass for everything else — one bad entry costs the rows that
+// cannot work without it, instead of failing every consumer's entire
+// install.
+//
+// A dependency counts as broken by extraction only when an extracted
+// row matched it (same name, and matching version when the dependency
+// pins one) and no surviving row satisfies it. Several versions of a
+// name can coexist, so dropping one version never takes down dependents
+// another still satisfies — and a dependency that was never present in
+// the lock file at all is deliberately left alone: it fails Validate
+// wholesale, exactly as it did before this mechanism existed.
+//
+// Every extracted row is recorded in SkippedAssets and returned,
+// including rows superseded by a surviving version of the same name:
+// cleanup keys protection off these names, and protection must not
+// depend on whether the surviving version applies to the caller's
+// scope. Messaging surfaces suppress superseded entries instead.
+func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
+	var invalid []Asset
+	var kept []Asset
+	for _, a := range lf.Assets {
+		if a.HasInvalidSourceGitRef() {
+			invalid = append(invalid, a)
+			continue
+		}
+		kept = append(kept, a)
+	}
+	lf.Assets = kept
+	if len(invalid) == 0 {
+		return nil
+	}
+
+	for changed := true; changed; {
+		changed = false
+		var next []Asset
+		for _, a := range lf.Assets {
+			if dependencyBrokenByExtraction(a, lf.Assets, invalid) {
+				invalid = append(invalid, a)
+				changed = true
+				continue
+			}
+			next = append(next, a)
+		}
+		lf.Assets = next
+	}
+
+	lf.SkippedAssets = append(lf.SkippedAssets, invalid...)
+	return invalid
+}
+
+// HasInvalidSourceGitRef reports whether the asset carries a source-git
+// ref that is not a pinned 40-hex commit SHA.
+func (a *Asset) HasInvalidSourceGitRef() bool {
+	return a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref)
+}
+
+// dependencyBrokenByExtraction reports whether a has a dependency that
+// no surviving row satisfies but an extracted row did.
+func dependencyBrokenByExtraction(a Asset, surviving, extracted []Asset) bool {
+	for _, d := range a.Dependencies {
+		if depSatisfiedBy(d, surviving) {
+			continue
+		}
+		if depSatisfiedBy(d, extracted) {
+			return true
+		}
+	}
+	return false
+}
+
+func depSatisfiedBy(d Dependency, rows []Asset) bool {
+	for i := range rows {
+		if rows[i].Name == d.Name && (d.Version == "" || d.Version == rows[i].Version) {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate validates the entire lock file
 func (lf *LockFile) Validate() error {
 	// Validate top-level fields

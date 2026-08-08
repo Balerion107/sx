@@ -1,0 +1,206 @@
+package commands
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/config"
+	"github.com/sleuth-io/sx/v2/internal/lockfile"
+	"github.com/sleuth-io/sx/v2/internal/scope"
+	"github.com/sleuth-io/sx/v2/internal/ui"
+)
+
+// TestSkippedAssetNames collects skipped names across profiles; cleanup
+// consults this set so a fetch-time skip is never read as a removal.
+func TestSkippedAssetNames(t *testing.T) {
+	a := buildProfileLock("default", "kept")
+	a.LockFile.SkippedAssets = []lockfile.Asset{{Name: "bad-a"}}
+	b := buildProfileLock("work", "other")
+	b.LockFile.SkippedAssets = []lockfile.Asset{{Name: "bad-b"}}
+	failed := profileLockFile{ProfileName: "broken"} // no lock file
+
+	names := skippedAssetNames([]profileLockFile{a, b, failed})
+	if len(names) != 2 || !names["bad-a"] || !names["bad-b"] {
+		t.Fatalf("expected {bad-a, bad-b}, got %v", names)
+	}
+}
+
+// TestCleanupRemovedAssetsSpares SkippedAssets: an installed asset that
+// was skipped at fetch time is broken, not removed — cleanup must leave
+// its install (and tracker entry) alone, while a genuinely absent asset
+// is still cleaned up.
+func TestCleanupRemovedAssetsSparesSkipped(t *testing.T) {
+	newTracker := func() *assets.Tracker {
+		tr := &assets.Tracker{Version: assets.TrackerFormatVersion}
+		tr.UpsertAsset(assets.InstalledAsset{Name: "bad", Version: "1.0.0", Type: "skill"})
+		return tr
+	}
+	styledOut := ui.NewOutput(&bytes.Buffer{}, &bytes.Buffer{})
+	currentScope := &scope.Scope{}
+
+	// Skipped: the tracker entry must survive.
+	tr := newTracker()
+	cleanupRemovedAssets(context.Background(), tr, nil, map[string]bool{"bad": true}, nil, currentScope, nil, styledOut)
+	if len(tr.Assets) != 1 {
+		t.Fatalf("skipped asset was cleaned up: tracker = %+v", tr.Assets)
+	}
+
+	// Not skipped (genuinely absent from the lock): cleaned up.
+	tr = newTracker()
+	cleanupRemovedAssets(context.Background(), tr, nil, nil, nil, currentScope, nil, styledOut)
+	if len(tr.Assets) != 0 {
+		t.Fatalf("absent asset was not cleaned up: tracker = %+v", tr.Assets)
+	}
+}
+
+// TestPrintDryRunSkippedLockAssets: dry-run is where users ask "why
+// isn't my asset installing" — the skipped set must appear with the
+// same reason strings the install warning uses, deduped across
+// profiles.
+func TestPrintDryRunSkippedLockAssets(t *testing.T) {
+	badRef := lockfile.Asset{
+		Name: "bad-ref", Version: "1.0.0",
+		SourceGit: &lockfile.SourceGit{URL: "https://x/y", Ref: "main"},
+	}
+	dependent := lockfile.Asset{Name: "dependent", Version: "1.0.0"}
+
+	a := buildProfileLock("default")
+	a.LockFile.SkippedAssets = []lockfile.Asset{badRef, dependent}
+	b := buildProfileLock("work")
+	b.LockFile.SkippedAssets = []lockfile.Asset{badRef} // duplicate across profiles
+
+	var buf bytes.Buffer
+	printDryRunSkippedLockAssets(&buf, []profileLockFile{a, b})
+	out := buf.String()
+
+	if !strings.Contains(out, `skipped bad-ref: source-git ref "main" is not a pinned`) {
+		t.Fatalf("missing invalid-ref reason:\n%s", out)
+	}
+	if !strings.Contains(out, "skipped dependent: it depends on a skipped asset") {
+		t.Fatalf("missing dependent reason:\n%s", out)
+	}
+	if strings.Count(out, "skipped bad-ref:") != 1 {
+		t.Fatalf("skips must be deduped across profiles:\n%s", out)
+	}
+}
+
+// TestSkipStatusFor: an installed copy of a skipped vault entry keeps
+// its real status (cleanup deliberately spares it — the files are on
+// disk and working); everything else reads as skipped.
+func TestSkipStatusFor(t *testing.T) {
+	cases := map[AssetStatus]AssetStatus{
+		StatusInstalled:    StatusInstalled,
+		StatusOutdated:     StatusOutdated,
+		StatusNotInstalled: StatusSkipped,
+	}
+	for in, want := range cases {
+		if got := skipStatusFor(in); got != want {
+			t.Errorf("skipStatusFor(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// TestGatherUnifiedAssetsMarksSkippedChain pins the config-side skip
+// derivation end to end: it must use the same transitive extraction as
+// install (a dependent of a bad-ref asset is skipped too), keep every
+// row listed, and carry the precise per-row reason.
+func TestGatherUnifiedAssetsMarksSkippedChain(t *testing.T) {
+	NewTestEnv(t)
+
+	repoURL := "https://github.com/acme/vault"
+	cfg := &config.Config{Type: config.RepositoryTypeGit, RepositoryURL: repoURL}
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	sha := strings.Repeat("a", 40)
+	lock := `lock-version = "1.0"
+version = "1"
+created-by = "test"
+
+[[assets]]
+name = "bad-ref"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+
+[[assets]]
+name = "dependent"
+version = "1.0.0"
+type = "skill"
+dependencies = [{ name = "bad-ref" }]
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "` + sha + `"
+
+[[assets]]
+name = "clean"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "` + sha + `"
+`
+	if err := cache.SaveLockFile(repoURL, []byte(lock)); err != nil {
+		t.Fatalf("save lock file: %v", err)
+	}
+
+	scopes := gatherUnifiedAssets(nil, true)
+	byName := map[string]AssetInfo{}
+	for _, s := range scopes {
+		for _, a := range s.Assets {
+			byName[a.Name] = a
+		}
+	}
+
+	for _, name := range []string{"bad-ref", "dependent", "clean"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("asset %q missing from listing: %+v", name, byName)
+		}
+	}
+	for _, name := range []string{"bad-ref", "dependent"} {
+		a := byName[name]
+		if !a.Skipped || a.Status != StatusSkipped || a.SkipReason == "" {
+			t.Fatalf("asset %q should be skipped with a reason, got %+v", name, a)
+		}
+	}
+	if byName["bad-ref"].SkipReason == byName["dependent"].SkipReason {
+		t.Fatal("direct and dependent skips must carry distinct reasons")
+	}
+	if a := byName["clean"]; a.Skipped || a.Status == StatusSkipped {
+		t.Fatalf("clean asset must not be skipped, got %+v", a)
+	}
+}
+
+// TestForEachSkippedLockAssetSuppressesSuperseded: a skipped row whose
+// name a surviving row still provides is not announced (the surviving
+// version installs), while its entry still protects cleanup.
+func TestForEachSkippedLockAssetSuppressesSuperseded(t *testing.T) {
+	pl := buildProfileLock("default", "foo") // surviving foo row
+	pl.LockFile.SkippedAssets = []lockfile.Asset{
+		{Name: "foo", Version: "2.0.0"},  // superseded — suppressed
+		{Name: "gone", Version: "1.0.0"}, // no surviving row — announced
+	}
+
+	var visited []string
+	forEachSkippedLockAsset([]profileLockFile{pl}, func(a lockfile.Asset) {
+		visited = append(visited, a.Name)
+	})
+	if len(visited) != 1 || visited[0] != "gone" {
+		t.Fatalf("expected only 'gone' announced, got %v", visited)
+	}
+
+	names := skippedAssetNames([]profileLockFile{pl})
+	if !names["foo"] || !names["gone"] {
+		t.Fatalf("cleanup protection must cover both, got %v", names)
+	}
+}

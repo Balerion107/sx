@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,8 +177,7 @@ func (c *Client) Clone(ctx context.Context, repoURL, destPath string) error {
 
 // Fetch fetches all remotes in the repository
 func (c *Client) Fetch(ctx context.Context, repoPath string) error {
-	cmd := c.command(ctx, "fetch", "--quiet", "--all")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "fetch", "--quiet", "--all")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -186,11 +187,58 @@ func (c *Client) Fetch(ctx context.Context, repoPath string) error {
 	return nil
 }
 
+// repoSelectingEnv are variables that select or redirect a repository
+// before any discovery happens. Git exports them to hook processes and
+// to rebase/bisect helpers, so an sx invoked from inside a git hook
+// inherits them — and an inherited GIT_DIR outranks both cmd.Dir and
+// GIT_CEILING_DIRECTORIES, silently redirecting a command at the
+// caller's own repository, while GIT_INDEX_FILE/GIT_WORK_TREE would
+// make even a clone write outside its destination. Stripped for every
+// invocation (see execGitCommandWithEnv), and filtered out rather than
+// set to empty: git's "unset vs empty" semantics differ by version (the
+// same reasoning documented for GIT_ASKPASS in command.go).
+var repoSelectingEnv = []string{
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_COMMON_DIR",
+}
+
+// commandInRepo builds a git command that runs inside repoPath and can
+// never escape it: GIT_CEILING_DIRECTORIES stops repository discovery
+// at the parent, so a directory whose .git is unusable errors out
+// instead of resolving to an enclosing repository (a dotfiles-managed
+// $HOME, a hand-set SX_CACHE_DIR inside a checkout) and reading or
+// mutating it. Inherited repo-selecting env vars are already stripped
+// for every command by execGitCommandWithEnv. Every command addressed
+// at a repo root must use this rather than setting cmd.Dir directly, so
+// the guard cannot be missed one method at a time.
+func (c *Client) commandInRepo(ctx context.Context, repoPath string, args ...string) *exec.Cmd {
+	cmd := c.command(ctx, args...)
+	cmd.Dir = repoPath
+	cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(repoPath))
+	return cmd
+}
+
+// withoutEnv returns env with every entry whose name is in names removed.
+func withoutEnv(env []string, names []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(names, name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // Reset runs `git reset --<mode> <ref>` in repoPath. Used by vault-clone
 // repair to move the branch pointer back to the remote tip.
 func (c *Client) Reset(ctx context.Context, repoPath, mode, ref string) error {
-	cmd := c.command(ctx, "reset", "--"+mode, ref)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "reset", "--"+mode, ref)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git reset --%s %s failed: %w: %s", mode, ref, err, strings.TrimSpace(string(output)))
 	}
@@ -201,8 +249,7 @@ func (c *Client) Reset(ctx context.Context, repoPath, mode, ref string) error {
 // state. Returns an error when no rebase is in progress; callers recovering
 // from a possibly-failed rebase should treat that as a no-op.
 func (c *Client) RebaseAbort(ctx context.Context, repoPath string) error {
-	cmd := c.command(ctx, "rebase", "--abort")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "rebase", "--abort")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git rebase --abort failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -214,8 +261,7 @@ func (c *Client) RebaseAbort(ctx context.Context, repoPath string) error {
 // local manifest/asset divergence while leaving the queued usage appends under
 // excludeDir staged for a follow-up commit.
 func (c *Client) RestoreExcept(ctx context.Context, repoPath, excludeDir string) error {
-	cmd := c.command(ctx, "restore", "--staged", "--worktree", "--", ".", ":(exclude)"+excludeDir)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "restore", "--staged", "--worktree", "--", ".", ":(exclude)"+excludeDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git restore failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -233,8 +279,7 @@ func (c *Client) Pull(ctx context.Context, repoPath string) error {
 	// explicit pull.rebase / pull.ff setting. The merge path is also
 	// what lets gitattributes merge=union drivers run on conflicting
 	// append-only files like .sx/usage/*.jsonl.
-	cmd := c.command(ctx, "pull", "--no-rebase", "--no-edit", "--quiet")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "pull", "--no-rebase", "--no-edit", "--quiet")
 
 	output, err := cmd.CombinedOutput()
 	log.Debug("git pull completed", "duration", time.Since(start), "error", err)
@@ -254,8 +299,7 @@ func (c *Client) PullRebase(ctx context.Context, repoPath string) error {
 	start := time.Now()
 	log.Debug("git pull --rebase starting", "repoPath", repoPath)
 
-	cmd := c.command(ctx, "pull", "--rebase", "--quiet")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "pull", "--rebase", "--quiet")
 
 	output, err := cmd.CombinedOutput()
 	log.Debug("git pull --rebase completed", "duration", time.Since(start), "error", err)
@@ -269,8 +313,7 @@ func (c *Client) PullRebase(ctx context.Context, repoPath string) error {
 
 // Push pushes changes to the remote repository
 func (c *Client) Push(ctx context.Context, repoPath string) error {
-	cmd := c.command(ctx, "push", "--quiet")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "push", "--quiet")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -286,8 +329,7 @@ func (c *Client) Push(ctx context.Context, repoPath string) error {
 // stay that way; force-pushing here would let a caller silently clobber a remote
 // branch that already exists.
 func (c *Client) PushSetUpstream(ctx context.Context, repoPath, branch string) error {
-	cmd := c.command(ctx, "push", "--quiet", "-u", "origin", branch)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "push", "--quiet", "-u", "origin", branch)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -299,12 +341,27 @@ func (c *Client) PushSetUpstream(ctx context.Context, repoPath, branch string) e
 
 // Checkout checks out a specific ref (branch, tag, or commit)
 func (c *Client) Checkout(ctx context.Context, repoPath, ref string) error {
-	cmd := c.command(ctx, "checkout", "--quiet", ref)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "checkout", "--quiet", ref)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git checkout failed: %w\nOutput: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// ForceCheckout checks out a ref with --force, restoring any missing or
+// modified working-tree files. For sx-owned cache clones only: a plain
+// checkout is a no-op when HEAD already equals the target, so a partial
+// working tree (an interrupted delete) would otherwise never heal — and
+// no local edit in these caches is worth preserving.
+func (c *Client) ForceCheckout(ctx context.Context, repoPath, ref string) error {
+	cmd := c.commandInRepo(ctx, repoPath, "checkout", "--quiet", "--force", ref)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout --force failed: %w\nOutput: %s", err, string(output))
 	}
 
 	return nil
@@ -351,8 +408,7 @@ func (c *Client) LsRemote(ctx context.Context, repoURL, ref string) (string, err
 
 // RevParse resolves a ref to a commit hash in a local repository
 func (c *Client) RevParse(ctx context.Context, repoPath, ref string) (string, error) {
-	cmd := c.command(ctx, "rev-parse", ref)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "rev-parse", ref)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -362,10 +418,57 @@ func (c *Client) RevParse(ctx context.Context, repoPath, ref string) (string, er
 	return strings.TrimSpace(string(output)), nil
 }
 
+// HasCommit reports whether the commit exists in the local repository,
+// without touching the network. The repository is addressed by explicit
+// --git-dir so git's upward repository discovery can never answer about
+// an ancestor of repoPath.
+//
+// repoPath must be an absolute path to a non-bare clone (a directory
+// with .git directly inside it) — the layout sx's own clones always
+// have. A bare repository or relative path reports false.
+func (c *Client) HasCommit(ctx context.Context, repoPath, sha string) bool {
+	cmd := c.command(ctx, "--git-dir", filepath.Join(repoPath, ".git"), "cat-file", "-e", sha+"^{commit}")
+	return cmd.Run() == nil
+}
+
+// HasDeletedWorktreeFiles reports whether any tracked file is missing
+// from the working tree (git ls-files --deleted) — the signature of an
+// interrupted delete, whatever the repository's layout. Modified or
+// untracked files do not count, so pending local changes (queued usage
+// appends, say) never trigger a destructive restore.
+func (c *Client) HasDeletedWorktreeFiles(ctx context.Context, repoPath string) (bool, error) {
+	cmd := c.commandInRepo(ctx, repoPath, "ls-files", "--deleted")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("git ls-files --deleted failed: %w", err)
+	}
+	return len(strings.TrimSpace(string(out))) > 0, nil
+}
+
+// IsRepo reports whether repoPath is a usable git repository.
+// --resolve-git-dir checks that exact path — no upward discovery, so an
+// ancestor repository (a cache dir under a dotfiles-managed $HOME, say)
+// cannot make a corrupt cache look healthy.
+//
+// repoPath must be an absolute path to a non-bare clone (a directory
+// with .git directly inside it) — the layout sx's own clones always
+// have. A bare repository reports false, and callers treat false as
+// license to discard the directory — which is why false is returned
+// only when git itself answered: a git that could not run at all (fork
+// failure, missing binary mid-upgrade) must never read as "corrupt,
+// delete it".
+func (c *Client) IsRepo(ctx context.Context, repoPath string) bool {
+	err := c.command(ctx, "rev-parse", "--resolve-git-dir", filepath.Join(repoPath, ".git")).Run()
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return !errors.As(err, &exitErr)
+}
+
 // GetRemoteURL returns the remote URL for the repository (typically 'origin')
 func (c *Client) GetRemoteURL(ctx context.Context, repoPath string) (string, error) {
-	cmd := c.command(ctx, "remote", "get-url", "origin")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "remote", "get-url", "origin")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -378,8 +481,7 @@ func (c *Client) GetRemoteURL(ctx context.Context, repoPath string) (string, err
 
 // GetCurrentBranch returns the current branch name
 func (c *Client) GetCurrentBranch(ctx context.Context, repoPath string) (string, error) {
-	cmd := c.command(ctx, "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -393,8 +495,7 @@ func (c *Client) GetCurrentBranch(ctx context.Context, repoPath string) (string,
 // GetCurrentBranchSymbolic returns the current branch name using symbolic-ref,
 // which works even on empty repos (no commits yet).
 func (c *Client) GetCurrentBranchSymbolic(ctx context.Context, repoPath string) (string, error) {
-	cmd := c.command(ctx, "symbolic-ref", "--short", "HEAD")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "symbolic-ref", "--short", "HEAD")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -409,8 +510,7 @@ func (c *Client) GetCurrentBranchSymbolic(ctx context.Context, repoPath string) 
 // clone's current HEAD when you need the repo's real base branch: the cached
 // clone is long-lived and may be left checked out on some other branch.
 func (c *Client) GetDefaultBranch(ctx context.Context, repoPath string) (string, error) {
-	cmd := c.command(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -424,8 +524,7 @@ func (c *Client) GetDefaultBranch(ctx context.Context, repoPath string) (string,
 
 // CheckoutNewBranch creates and switches to a new branch
 func (c *Client) CheckoutNewBranch(ctx context.Context, repoPath, branch string) error {
-	cmd := c.command(ctx, "checkout", "-b", branch)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "checkout", "-b", branch)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -441,8 +540,7 @@ func (c *Client) CheckoutNewBranch(ctx context.Context, repoPath, branch string)
 // vault clone, which is reused across runs and may carry a leftover branch from
 // a previous attempt.
 func (c *Client) CheckoutNewBranchForce(ctx context.Context, repoPath, branch string) error {
-	cmd := c.command(ctx, "checkout", "-B", branch)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "checkout", "-B", branch)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -455,8 +553,7 @@ func (c *Client) CheckoutNewBranchForce(ctx context.Context, repoPath, branch st
 // Add stages files for commit
 func (c *Client) Add(ctx context.Context, repoPath string, paths ...string) error {
 	args := append([]string{"add"}, paths...)
-	cmd := c.command(ctx, args...)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -468,8 +565,7 @@ func (c *Client) Add(ctx context.Context, repoPath string, paths ...string) erro
 
 // Commit creates a commit with the given message
 func (c *Client) Commit(ctx context.Context, repoPath, message string) error {
-	cmd := c.command(ctx, "commit", "-m", message)
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "commit", "-m", message)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -481,8 +577,14 @@ func (c *Client) Commit(ctx context.Context, repoPath, message string) error {
 
 // IsEmpty checks if a repository has no commits (e.g., freshly cloned empty repo)
 func (c *Client) IsEmpty(ctx context.Context, repoPath string) (bool, error) {
-	cmd := c.command(ctx, "rev-parse", "HEAD")
-	cmd.Dir = repoPath
+	// "not a git repository" also exits 128, and a broken repository
+	// must not masquerade as an empty one — callers skip work for empty
+	// repos that they must instead repair for broken ones.
+	if !c.IsRepo(ctx, repoPath) {
+		return false, fmt.Errorf("not a git repository: %s", repoPath)
+	}
+
+	cmd := c.commandInRepo(ctx, repoPath, "rev-parse", "HEAD")
 
 	err := cmd.Run()
 	if err != nil {
@@ -498,8 +600,7 @@ func (c *Client) IsEmpty(ctx context.Context, repoPath string) (bool, error) {
 
 // HasStagedChanges checks if there are staged changes ready to be committed
 func (c *Client) HasStagedChanges(ctx context.Context, repoPath string) (bool, error) {
-	cmd := c.command(ctx, "diff", "--cached", "--quiet")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "diff", "--cached", "--quiet")
 
 	err := cmd.Run()
 	if err != nil {
@@ -522,8 +623,7 @@ func (c *Client) HasStagedChanges(ctx context.Context, repoPath string) (bool, e
 // fall back to the local path. Used by Fetch/Pull/Push so classified errors
 // mention something the user recognizes, not a cache-dir hash.
 func (c *Client) remoteLocation(ctx context.Context, repoPath string) string {
-	cmd := c.command(ctx, "config", "--get", "remote.origin.url")
-	cmd.Dir = repoPath
+	cmd := c.commandInRepo(ctx, repoPath, "config", "--get", "remote.origin.url")
 	out, err := cmd.Output()
 	if err == nil {
 		if url := strings.TrimSpace(string(out)); url != "" {
