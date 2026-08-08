@@ -27,17 +27,54 @@ var (
 // "broken" for "removed".
 func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 	var invalid []Asset
+	skippedNames := make(map[string]bool)
 	kept := lf.Assets[:0]
 	for _, a := range lf.Assets {
-		if a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref) {
+		if a.HasInvalidSourceGitRef() {
 			invalid = append(invalid, a)
+			skippedNames[a.Name] = true
 			continue
 		}
 		kept = append(kept, a)
 	}
 	lf.Assets = kept
+
+	// A dependency on a skipped asset can never be satisfied, and
+	// Validate would reject the whole lock file for the dangling
+	// reference — extract the dependents too, to a fixpoint, so the
+	// cost stays "the assets that can't work" rather than the vault.
+	for changed := len(invalid) > 0; changed; {
+		changed = false
+		kept = lf.Assets[:0]
+		for _, a := range lf.Assets {
+			if dependsOnAny(a, skippedNames) {
+				invalid = append(invalid, a)
+				skippedNames[a.Name] = true
+				changed = true
+				continue
+			}
+			kept = append(kept, a)
+		}
+		lf.Assets = kept
+	}
+
 	lf.SkippedAssets = append(lf.SkippedAssets, invalid...)
 	return invalid
+}
+
+// HasInvalidSourceGitRef reports whether the asset carries a source-git
+// ref that is not a pinned 40-hex commit SHA.
+func (a *Asset) HasInvalidSourceGitRef() bool {
+	return a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref)
+}
+
+func dependsOnAny(a Asset, names map[string]bool) bool {
+	for _, d := range a.Dependencies {
+		if names[d.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate validates the entire lock file

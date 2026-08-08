@@ -408,6 +408,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	}
 
 	reportScopeSkips(skips, styledOut)
+	reportSkippedLockAssets(profileLocks, styledOut)
 
 	// Load tracker
 	tracker := loadTracker(out)

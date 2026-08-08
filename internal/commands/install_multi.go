@@ -473,3 +473,26 @@ func skippedAssetNames(profileLocks []profileLockFile) map[string]bool {
 	}
 	return names
 }
+
+// reportSkippedLockAssets surfaces assets excluded at lock-fetch time —
+// once per asset per run, after the fetch fan-out, because fetchLockFile
+// runs in per-profile goroutines and must stay out of shared output.
+func reportSkippedLockAssets(profileLocks []profileLockFile, styledOut *ui.Output) {
+	seen := make(map[string]bool)
+	for _, pl := range profileLocks {
+		if pl.LockFile == nil {
+			continue
+		}
+		for _, a := range pl.LockFile.SkippedAssets {
+			if seen[a.Name] {
+				continue
+			}
+			seen[a.Name] = true
+			if a.HasInvalidSourceGitRef() {
+				styledOut.Warning(fmt.Sprintf("Skipping asset %q: source-git ref %q is not a pinned 40-character commit SHA — fix it in the vault's sx.toml", a.Name, a.SourceGit.Ref))
+			} else {
+				styledOut.Warning(fmt.Sprintf("Skipping asset %q: it depends on a skipped asset", a.Name))
+			}
+		}
+	}
+}

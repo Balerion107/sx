@@ -38,3 +38,36 @@ func TestExtractInvalidSourceGitAssets(t *testing.T) {
 		t.Fatalf("remaining assets must validate: %v", err)
 	}
 }
+
+// TestExtractInvalidSourceGitAssetsTakesDependents: an asset depending
+// (transitively) on a skipped asset can never install, and leaving it
+// would make Validate fail on the dangling dependency — the wholesale
+// failure extraction exists to prevent. The whole chain moves to
+// SkippedAssets and the remainder validates.
+func TestExtractInvalidSourceGitAssetsTakesDependents(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	lf := &LockFile{
+		LockVersion: "1.0",
+		Version:     "1",
+		CreatedBy:   "test",
+		Assets: []Asset{
+			{Name: "a-bad", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: "main"}},
+			{Name: "b-dependent", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha},
+				Dependencies: []Dependency{{Name: "a-bad"}}},
+			{Name: "c-transitive", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha},
+				Dependencies: []Dependency{{Name: "b-dependent"}}},
+			{Name: "d-clean", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha}},
+		},
+	}
+
+	invalid := lf.ExtractInvalidSourceGitAssets()
+	if len(invalid) != 3 {
+		t.Fatalf("expected the full chain extracted, got %+v", invalid)
+	}
+	if len(lf.Assets) != 1 || lf.Assets[0].Name != "d-clean" {
+		t.Fatalf("expected only d-clean kept, got %+v", lf.Assets)
+	}
+	if err := lf.Validate(); err != nil {
+		t.Fatalf("remaining assets must validate: %v", err)
+	}
+}

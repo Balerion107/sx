@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/sleuth-io/sx/v2/internal/cache"
 	"github.com/sleuth-io/sx/v2/internal/config"
@@ -49,14 +48,13 @@ func fetchLockFile(ctx context.Context, vault vaultpkg.Vault, cfg *config.Config
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse lock file: %w", err)
 	}
-	// One hand-authored bad source-git ref must cost one asset, loudly —
-	// not fail the whole vault's install. The skipped asset stays in
-	// SkippedAssets so removed-asset cleanup won't uninstall it.
-	for _, a := range lf.ExtractInvalidSourceGitAssets() {
-		fmt.Fprintf(os.Stderr,
-			"⚠ Skipping asset %q: source-git ref %q is not a pinned 40-character commit SHA — fix it in the vault's sx.toml\n",
-			a.Name, a.SourceGit.Ref)
-	}
+	// One hand-authored bad source-git ref must cost the assets that
+	// can't work without it — not fail the whole vault's install. The
+	// skipped assets stay in SkippedAssets so removed-asset cleanup
+	// won't uninstall them; reporting happens after the fetch fan-out
+	// (reportSkippedLockAssets), since this function runs in per-profile
+	// goroutines and must stay out of shared output.
+	lf.ExtractInvalidSourceGitAssets()
 	if err := lf.Validate(); err != nil {
 		return nil, fmt.Errorf("lock file validation failed: %w", err)
 	}
