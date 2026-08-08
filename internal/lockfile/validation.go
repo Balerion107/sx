@@ -39,6 +39,19 @@ func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 	}
 	lf.Assets = kept
 
+	// A name is only unsatisfiable when NO surviving row provides it:
+	// lock files can carry several versions of one name, and dropping a
+	// bad version must not take down dependents a good version still
+	// satisfies (dependencies resolve by name).
+	for name := range skippedNames {
+		for _, a := range lf.Assets {
+			if a.Name == name {
+				delete(skippedNames, name)
+				break
+			}
+		}
+	}
+
 	// A dependency on a skipped asset can never be satisfied, and
 	// Validate would reject the whole lock file for the dangling
 	// reference — extract the dependents too, to a fixpoint, so the

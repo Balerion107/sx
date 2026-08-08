@@ -71,3 +71,33 @@ func TestExtractInvalidSourceGitAssetsTakesDependents(t *testing.T) {
 		t.Fatalf("remaining assets must validate: %v", err)
 	}
 }
+
+// TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents: dropping
+// one bad version of a name must not take down dependents that a
+// surviving good version still satisfies — dependencies resolve by
+// name, and unsatisfiability is decided from what's left.
+func TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	lf := &LockFile{
+		LockVersion: "1.0",
+		Version:     "1",
+		CreatedBy:   "test",
+		Assets: []Asset{
+			{Name: "foo", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha}},
+			{Name: "foo", Version: "2.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: "main"}},
+			{Name: "dependent", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha},
+				Dependencies: []Dependency{{Name: "foo"}}},
+		},
+	}
+
+	invalid := lf.ExtractInvalidSourceGitAssets()
+	if len(invalid) != 1 || invalid[0].Version != "2.0.0" {
+		t.Fatalf("expected only foo@2.0.0 extracted, got %+v", invalid)
+	}
+	if len(lf.Assets) != 2 {
+		t.Fatalf("expected foo@1.0.0 and dependent kept, got %+v", lf.Assets)
+	}
+	if err := lf.Validate(); err != nil {
+		t.Fatalf("remaining assets must validate: %v", err)
+	}
+}

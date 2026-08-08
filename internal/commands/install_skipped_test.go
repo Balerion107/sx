@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/assets"
+	"github.com/sleuth-io/sx/v2/internal/cache"
+	"github.com/sleuth-io/sx/v2/internal/config"
 	"github.com/sleuth-io/sx/v2/internal/lockfile"
 	"github.com/sleuth-io/sx/v2/internal/scope"
 	"github.com/sleuth-io/sx/v2/internal/ui"
@@ -99,5 +101,82 @@ func TestSkipStatusFor(t *testing.T) {
 		if got := skipStatusFor(in); got != want {
 			t.Errorf("skipStatusFor(%s) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+// TestGatherUnifiedAssetsMarksSkippedChain pins the config-side skip
+// derivation end to end: it must use the same transitive extraction as
+// install (a dependent of a bad-ref asset is skipped too), keep every
+// row listed, and carry the precise per-row reason.
+func TestGatherUnifiedAssetsMarksSkippedChain(t *testing.T) {
+	NewTestEnv(t)
+
+	repoURL := "https://github.com/acme/vault"
+	cfg := &config.Config{Type: config.RepositoryTypeGit, RepositoryURL: repoURL}
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	sha := strings.Repeat("a", 40)
+	lock := `lock-version = "1.0"
+version = "1"
+created-by = "test"
+
+[[assets]]
+name = "bad-ref"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "main"
+
+[[assets]]
+name = "dependent"
+version = "1.0.0"
+type = "skill"
+dependencies = [{ name = "bad-ref" }]
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "` + sha + `"
+
+[[assets]]
+name = "clean"
+version = "1.0.0"
+type = "skill"
+
+[assets.source-git]
+url = "https://github.com/acme/tools"
+ref = "` + sha + `"
+`
+	if err := cache.SaveLockFile(repoURL, []byte(lock)); err != nil {
+		t.Fatalf("save lock file: %v", err)
+	}
+
+	scopes := gatherUnifiedAssets(nil, true)
+	byName := map[string]AssetInfo{}
+	for _, s := range scopes {
+		for _, a := range s.Assets {
+			byName[a.Name] = a
+		}
+	}
+
+	for _, name := range []string{"bad-ref", "dependent", "clean"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("asset %q missing from listing: %+v", name, byName)
+		}
+	}
+	for _, name := range []string{"bad-ref", "dependent"} {
+		a := byName[name]
+		if !a.Skipped || a.Status != StatusSkipped || a.SkipReason == "" {
+			t.Fatalf("asset %q should be skipped with a reason, got %+v", name, a)
+		}
+	}
+	if byName["bad-ref"].SkipReason == byName["dependent"].SkipReason {
+		t.Fatal("direct and dependent skips must carry distinct reasons")
+	}
+	if a := byName["clean"]; a.Skipped || a.Status == StatusSkipped {
+		t.Fatalf("clean asset must not be skipped, got %+v", a)
 	}
 }
