@@ -404,6 +404,7 @@ func runInstall(cmd *cobra.Command, args []string, hookMode bool, hookClientID s
 	// the tracker, download anything, or write to client directories.
 	if dryRun {
 		printDryRunPreview(cmd.OutOrStdout(), sortedAssets, env, assetOrigin, len(profileOrder) > 1, skips)
+		printDryRunSkippedLockAssets(cmd.OutOrStdout(), profileLocks)
 		return nil
 	}
 

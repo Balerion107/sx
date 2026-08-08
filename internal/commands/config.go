@@ -98,6 +98,7 @@ const (
 	StatusOutdated     AssetStatus = "outdated"      // Installed but different version
 	StatusNotInstalled AssetStatus = "not_installed" // In lock file but not installed
 	StatusOrphaned     AssetStatus = "orphaned"      // Installed but not in lock file
+	StatusSkipped      AssetStatus = "skipped"       // In lock file but unprocessable (e.g. unpinned source-git ref)
 )
 
 type AssetInfo struct {
@@ -535,6 +536,12 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 			}
 
 			status, installedVersion, clients := determineAssetStatus(latest, scopeName, tracker)
+			// Mirror install's fetch-time skip so a broken source-git
+			// entry renders as its own state instead of passing as
+			// healthy — or as "outdated" forever once the vault moves on.
+			if latest.HasInvalidSourceGitRef() {
+				status = StatusSkipped
+			}
 
 			info := AssetInfo{
 				Name:             latest.Name,
@@ -722,6 +729,8 @@ func printText(output ConfigOutput, showAll bool) error {
 					statusStr = out.MutedText(" (not installed)")
 				case StatusOrphaned:
 					statusStr = out.ErrorText(" (removed from lock file)")
+				case StatusSkipped:
+					statusStr = out.ErrorText(" (skipped: source-git ref not pinned)")
 				}
 
 				out.Printf("  - %s %s [%s]%s%s\n",
