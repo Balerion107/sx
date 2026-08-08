@@ -14,6 +14,15 @@ type LockFile struct {
 	Version     string  `toml:"version"`
 	CreatedBy   string  `toml:"created-by"`
 	Assets      []Asset `toml:"assets"`
+
+	// SkippedAssets holds assets that were present in the fetched lock
+	// file but excluded from installation because they cannot be
+	// processed (a source-git ref that isn't a pinned SHA, say).
+	// In-memory only, never serialized. Removed-asset cleanup must
+	// treat these as still present: a skipped asset is broken, not
+	// removed, and uninstalling it from every client would turn one
+	// bad manifest entry into a fleet-wide removal.
+	SkippedAssets []Asset `toml:"-"`
 }
 
 // Asset represents an asset with its metadata, source, and installation configurations

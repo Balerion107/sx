@@ -457,3 +457,19 @@ func downloadAssetsMultiVault(
 
 	return result, nil
 }
+
+// skippedAssetNames collects the names of assets excluded from
+// installation at fetch time (see LockFile.SkippedAssets); removed-asset
+// cleanup treats them as still present so they are not uninstalled.
+func skippedAssetNames(profileLocks []profileLockFile) map[string]bool {
+	names := make(map[string]bool)
+	for _, pl := range profileLocks {
+		if pl.LockFile == nil {
+			continue
+		}
+		for _, a := range pl.LockFile.SkippedAssets {
+			names[a.Name] = true
+		}
+	}
+	return names
+}

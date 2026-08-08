@@ -538,11 +538,11 @@ ref = "main"
 	}
 }
 
-// TestMigrationPrunesNonSHASourceGitRef: a legacy sx.lock entry the
-// current ref contract cannot express must be dropped during migration
-// (with a warning) rather than making the migration's own Save fail on
-// the read path forever.
-func TestMigrationPrunesNonSHASourceGitRef(t *testing.T) {
+// TestMigrationCarriesNonSHASourceGitRef: migration must not decide to
+// delete a shared asset — a legacy entry with a non-SHA ref is carried
+// through verbatim, and the consumer-side lock handling skips (and
+// surfaces) just that asset at install time.
+func TestMigrationCarriesNonSHASourceGitRef(t *testing.T) {
 	root := t.TempDir()
 	lock := `lock-version = "1.0"
 version = "1"
@@ -555,15 +555,6 @@ type = "skill"
 [assets.source-git]
 url = "https://github.com/acme/tools"
 ref = "main"
-
-[[assets]]
-name = "good-ref"
-version = "1.0.0"
-type = "skill"
-
-[assets.source-git]
-url = "https://github.com/acme/tools"
-ref = "` + strings.Repeat("b", 40) + `"
 `
 	if err := os.WriteFile(filepath.Join(root, "sx.lock"), []byte(lock), 0644); err != nil {
 		t.Fatal(err)
@@ -576,11 +567,7 @@ ref = "` + strings.Repeat("b", 40) + `"
 	if !migrated {
 		t.Fatal("expected a migration to run")
 	}
-	if len(m.Assets) != 1 || m.Assets[0].Name != "good-ref" {
-		names := make([]string, 0, len(m.Assets))
-		for _, a := range m.Assets {
-			names = append(names, a.Name)
-		}
-		t.Fatalf("migration should keep only good-ref, got %v", names)
+	if len(m.Assets) != 1 || m.Assets[0].Name != "bad-ref" || m.Assets[0].SourceGit == nil || m.Assets[0].SourceGit.Ref != "main" {
+		t.Fatalf("migration should carry the entry verbatim, got %+v", m.Assets)
 	}
 }

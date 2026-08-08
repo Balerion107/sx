@@ -13,6 +13,33 @@ var (
 	gitCommitSHARegex = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+// ExtractInvalidSourceGitAssets moves every asset whose source-git ref
+// is not a pinned 40-hex commit SHA out of Assets and into
+// SkippedAssets, returning the moved assets.
+//
+// This is the enforcement point for the ref contract that a real
+// command path actually reaches: source-git is a hand-authored manifest
+// feature (no sx command constructs one), so a bad ref can only be
+// discovered when the resolved lock file is consumed. Extracting the
+// offending asset lets Validate pass for everything else — one bad
+// entry costs one asset, visibly, instead of failing every consumer's
+// entire install — while SkippedAssets keeps cleanup from mistaking
+// "broken" for "removed".
+func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
+	var invalid []Asset
+	kept := lf.Assets[:0]
+	for _, a := range lf.Assets {
+		if a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref) {
+			invalid = append(invalid, a)
+			continue
+		}
+		kept = append(kept, a)
+	}
+	lf.Assets = kept
+	lf.SkippedAssets = append(lf.SkippedAssets, invalid...)
+	return invalid
+}
+
 // Validate validates the entire lock file
 func (lf *LockFile) Validate() error {
 	// Validate top-level fields
