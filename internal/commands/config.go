@@ -108,6 +108,24 @@ type AssetInfo struct {
 	Type             string      `json:"type"`
 	Clients          []string    `json:"clients"`
 	Status           AssetStatus `json:"status"`
+
+	// Skipped marks membership in the install-time skipped set (an
+	// unpinned source-git ref, or a dependent of one). An installed
+	// copy keeps its real status — cleanup deliberately spares it — so
+	// Skipped is the annotation that its vault entry is frozen.
+	Skipped bool `json:"skipped,omitempty"`
+}
+
+// skipStatusFor maps an asset in the install-time skipped set to its
+// displayed status. An installed (or outdated) copy keeps its real
+// status: removed-asset cleanup deliberately spares skipped assets, so
+// the files are on disk and working, and reporting them as "skipped"
+// would contradict that. Anything else becomes StatusSkipped.
+func skipStatusFor(status AssetStatus) AssetStatus {
+	if status == StatusInstalled || status == StatusOutdated {
+		return status
+	}
+	return StatusSkipped
 }
 
 // NewConfigCommand creates the config command
@@ -511,6 +529,20 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 	// Load tracker for installation status
 	tracker, _ := assets.LoadTracker()
 
+	// Mirror install's fetch-time extraction — including transitive
+	// dependents — so this view and the install agree on which assets
+	// are skipped, while keeping every row listed. Run on a copy: the
+	// listing below must still show the skipped rows.
+	skippedNames := make(map[string]bool)
+	{
+		clone := *lf
+		clone.Assets = append([]lockfile.Asset(nil), lf.Assets...)
+		clone.SkippedAssets = nil
+		for _, a := range clone.ExtractInvalidSourceGitAssets() {
+			skippedNames[a.Name] = true
+		}
+	}
+
 	// Group assets by scope
 	grouped := groupAssetsByScope(lf, currentScope, showAll)
 
@@ -536,11 +568,9 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 			}
 
 			status, installedVersion, clients := determineAssetStatus(latest, scopeName, tracker)
-			// Mirror install's fetch-time skip so a broken source-git
-			// entry renders as its own state instead of passing as
-			// healthy — or as "outdated" forever once the vault moves on.
-			if latest.HasInvalidSourceGitRef() {
-				status = StatusSkipped
+			skipped := skippedNames[latest.Name]
+			if skipped {
+				status = skipStatusFor(status)
 			}
 
 			info := AssetInfo{
@@ -550,6 +580,7 @@ func gatherUnifiedAssets(currentScope *scope.Scope, showAll bool) []ScopeAssets 
 				Status:           status,
 				Clients:          clients,
 				InstalledVersion: installedVersion,
+				Skipped:          skipped,
 			}
 
 			s.Assets = append(s.Assets, info)
@@ -730,7 +761,12 @@ func printText(output ConfigOutput, showAll bool) error {
 				case StatusOrphaned:
 					statusStr = out.ErrorText(" (removed from lock file)")
 				case StatusSkipped:
-					statusStr = out.ErrorText(" (skipped: source-git ref not pinned)")
+					statusStr = out.ErrorText(" (skipped: unpinned source-git ref or skipped dependency)")
+				}
+				if asset.Skipped && asset.Status != StatusSkipped {
+					// Installed copy of a skipped vault entry: the real
+					// status stands, but installs won't update it.
+					statusStr += out.ErrorText(" (vault ref not pinned; frozen at installed version)")
 				}
 
 				out.Printf("  - %s %s [%s]%s%s\n",

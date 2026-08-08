@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sleuth-io/sx/v2/internal/assets"
@@ -51,5 +52,52 @@ func TestCleanupRemovedAssetsSparesSkipped(t *testing.T) {
 	cleanupRemovedAssets(context.Background(), tr, nil, nil, nil, currentScope, nil, styledOut)
 	if len(tr.Assets) != 0 {
 		t.Fatalf("absent asset was not cleaned up: tracker = %+v", tr.Assets)
+	}
+}
+
+// TestPrintDryRunSkippedLockAssets: dry-run is where users ask "why
+// isn't my asset installing" — the skipped set must appear with the
+// same reason strings the install warning uses, deduped across
+// profiles.
+func TestPrintDryRunSkippedLockAssets(t *testing.T) {
+	badRef := lockfile.Asset{
+		Name: "bad-ref", Version: "1.0.0",
+		SourceGit: &lockfile.SourceGit{URL: "https://x/y", Ref: "main"},
+	}
+	dependent := lockfile.Asset{Name: "dependent", Version: "1.0.0"}
+
+	a := buildProfileLock("default")
+	a.LockFile.SkippedAssets = []lockfile.Asset{badRef, dependent}
+	b := buildProfileLock("work")
+	b.LockFile.SkippedAssets = []lockfile.Asset{badRef} // duplicate across profiles
+
+	var buf bytes.Buffer
+	printDryRunSkippedLockAssets(&buf, []profileLockFile{a, b})
+	out := buf.String()
+
+	if !strings.Contains(out, `skipped bad-ref: source-git ref "main" is not a pinned`) {
+		t.Fatalf("missing invalid-ref reason:\n%s", out)
+	}
+	if !strings.Contains(out, "skipped dependent: it depends on a skipped asset") {
+		t.Fatalf("missing dependent reason:\n%s", out)
+	}
+	if strings.Count(out, "skipped bad-ref:") != 1 {
+		t.Fatalf("skips must be deduped across profiles:\n%s", out)
+	}
+}
+
+// TestSkipStatusFor: an installed copy of a skipped vault entry keeps
+// its real status (cleanup deliberately spares it — the files are on
+// disk and working); everything else reads as skipped.
+func TestSkipStatusFor(t *testing.T) {
+	cases := map[AssetStatus]AssetStatus{
+		StatusInstalled:    StatusInstalled,
+		StatusOutdated:     StatusOutdated,
+		StatusNotInstalled: StatusSkipped,
+	}
+	for in, want := range cases {
+		if got := skipStatusFor(in); got != want {
+			t.Errorf("skipStatusFor(%s) = %s, want %s", in, got, want)
+		}
 	}
 }
