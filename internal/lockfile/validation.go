@@ -13,66 +13,70 @@ var (
 	gitCommitSHARegex = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
-// ExtractInvalidSourceGitAssets moves every asset whose source-git ref
-// is not a pinned 40-hex commit SHA out of Assets and into
-// SkippedAssets, returning the moved assets.
+// ExtractInvalidSourceGitAssets moves every asset row whose source-git
+// ref is not a pinned 40-hex commit SHA out of Assets, along with — to
+// a fixpoint — every row left with a dependency no surviving row
+// satisfies (Validate would reject the whole lock file for the dangling
+// reference).
 //
 // This is the enforcement point for the ref contract that a real
 // command path actually reaches: source-git is a hand-authored manifest
 // feature (no sx command constructs one), so a bad ref can only be
-// discovered when the resolved lock file is consumed. Extracting the
-// offending asset lets Validate pass for everything else — one bad
-// entry costs one asset, visibly, instead of failing every consumer's
-// entire install — while SkippedAssets keeps cleanup from mistaking
-// "broken" for "removed".
+// discovered when the resolved lock file is consumed. Extraction lets
+// Validate pass for everything else — one bad entry costs the rows that
+// cannot work without it, instead of failing every consumer's entire
+// install.
+//
+// Satisfiability is decided per dependency against the surviving rows
+// (same name, and matching version when the dependency pins one):
+// several versions of a name can coexist, and dropping one must not
+// take down dependents another still satisfies.
+//
+// The returned slice — mirrored into SkippedAssets for reporting and
+// cleanup protection — contains only rows whose name has NO surviving
+// provider. A row superseded by a surviving version is still extracted
+// (it cannot be processed) but not reported: the surviving version
+// installs, so "skipping asset X" warnings, cleanup protection, and
+// status marking keyed on it would all mislead.
 func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 	var invalid []Asset
-	skippedNames := make(map[string]bool)
-	kept := lf.Assets[:0]
+	var kept []Asset
 	for _, a := range lf.Assets {
 		if a.HasInvalidSourceGitRef() {
 			invalid = append(invalid, a)
-			skippedNames[a.Name] = true
 			continue
 		}
 		kept = append(kept, a)
 	}
 	lf.Assets = kept
-
-	// A name is only unsatisfiable when NO surviving row provides it:
-	// lock files can carry several versions of one name, and dropping a
-	// bad version must not take down dependents a good version still
-	// satisfies (dependencies resolve by name).
-	for name := range skippedNames {
-		for _, a := range lf.Assets {
-			if a.Name == name {
-				delete(skippedNames, name)
-				break
-			}
-		}
+	if len(invalid) == 0 {
+		// No bad refs: leave dangling-dependency handling to Validate,
+		// exactly as before this mechanism existed.
+		return nil
 	}
 
-	// A dependency on a skipped asset can never be satisfied, and
-	// Validate would reject the whole lock file for the dangling
-	// reference — extract the dependents too, to a fixpoint, so the
-	// cost stays "the assets that can't work" rather than the vault.
-	for changed := len(invalid) > 0; changed; {
+	for changed := true; changed; {
 		changed = false
-		kept = lf.Assets[:0]
+		var next []Asset
 		for _, a := range lf.Assets {
-			if dependsOnAny(a, skippedNames) {
+			if hasUnsatisfiedDependency(a, lf.Assets) {
 				invalid = append(invalid, a)
-				skippedNames[a.Name] = true
 				changed = true
 				continue
 			}
-			kept = append(kept, a)
+			next = append(next, a)
 		}
-		lf.Assets = kept
+		lf.Assets = next
 	}
 
-	lf.SkippedAssets = append(lf.SkippedAssets, invalid...)
-	return invalid
+	var reportable []Asset
+	for _, a := range invalid {
+		if !nameProvided(a.Name, lf.Assets) {
+			reportable = append(reportable, a)
+		}
+	}
+	lf.SkippedAssets = append(lf.SkippedAssets, reportable...)
+	return reportable
 }
 
 // HasInvalidSourceGitRef reports whether the asset carries a source-git
@@ -81,9 +85,27 @@ func (a *Asset) HasInvalidSourceGitRef() bool {
 	return a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref)
 }
 
-func dependsOnAny(a Asset, names map[string]bool) bool {
+// hasUnsatisfiedDependency reports whether any of a's dependencies has
+// no row in rows that provides it (matching version when pinned).
+func hasUnsatisfiedDependency(a Asset, rows []Asset) bool {
 	for _, d := range a.Dependencies {
-		if names[d.Name] {
+		satisfied := false
+		for i := range rows {
+			if rows[i].Name == d.Name && (d.Version == "" || d.Version == rows[i].Version) {
+				satisfied = true
+				break
+			}
+		}
+		if !satisfied {
+			return true
+		}
+	}
+	return false
+}
+
+func nameProvided(name string, rows []Asset) bool {
+	for i := range rows {
+		if rows[i].Name == name {
 			return true
 		}
 	}
