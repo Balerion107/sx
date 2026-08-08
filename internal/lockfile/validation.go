@@ -14,10 +14,10 @@ var (
 )
 
 // ExtractInvalidSourceGitAssets moves every asset row whose source-git
-// ref is not a pinned 40-hex commit SHA out of Assets, along with — to
-// a fixpoint — every row left with a dependency no surviving row
-// satisfies (Validate would reject the whole lock file for the dangling
-// reference).
+// ref is not a pinned 40-hex commit SHA out of Assets and into
+// SkippedAssets, along with — to a fixpoint — every row left with a
+// dependency that the extraction broke (Validate would reject the whole
+// lock file for the dangling reference).
 //
 // This is the enforcement point for the ref contract that a real
 // command path actually reaches: source-git is a hand-authored manifest
@@ -27,17 +27,19 @@ var (
 // cannot work without it, instead of failing every consumer's entire
 // install.
 //
-// Satisfiability is decided per dependency against the surviving rows
-// (same name, and matching version when the dependency pins one):
-// several versions of a name can coexist, and dropping one must not
-// take down dependents another still satisfies.
+// A dependency counts as broken by extraction only when an extracted
+// row matched it (same name, and matching version when the dependency
+// pins one) and no surviving row satisfies it. Several versions of a
+// name can coexist, so dropping one version never takes down dependents
+// another still satisfies — and a dependency that was never present in
+// the lock file at all is deliberately left alone: it fails Validate
+// wholesale, exactly as it did before this mechanism existed.
 //
-// The returned slice — mirrored into SkippedAssets for reporting and
-// cleanup protection — contains only rows whose name has NO surviving
-// provider. A row superseded by a surviving version is still extracted
-// (it cannot be processed) but not reported: the surviving version
-// installs, so "skipping asset X" warnings, cleanup protection, and
-// status marking keyed on it would all mislead.
+// Every extracted row is recorded in SkippedAssets and returned,
+// including rows superseded by a surviving version of the same name:
+// cleanup keys protection off these names, and protection must not
+// depend on whether the surviving version applies to the caller's
+// scope. Messaging surfaces suppress superseded entries instead.
 func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 	var invalid []Asset
 	var kept []Asset
@@ -50,8 +52,6 @@ func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 	}
 	lf.Assets = kept
 	if len(invalid) == 0 {
-		// No bad refs: leave dangling-dependency handling to Validate,
-		// exactly as before this mechanism existed.
 		return nil
 	}
 
@@ -59,7 +59,7 @@ func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 		changed = false
 		var next []Asset
 		for _, a := range lf.Assets {
-			if hasUnsatisfiedDependency(a, lf.Assets) {
+			if dependencyBrokenByExtraction(a, lf.Assets, invalid) {
 				invalid = append(invalid, a)
 				changed = true
 				continue
@@ -69,14 +69,8 @@ func (lf *LockFile) ExtractInvalidSourceGitAssets() []Asset {
 		lf.Assets = next
 	}
 
-	var reportable []Asset
-	for _, a := range invalid {
-		if !nameProvided(a.Name, lf.Assets) {
-			reportable = append(reportable, a)
-		}
-	}
-	lf.SkippedAssets = append(lf.SkippedAssets, reportable...)
-	return reportable
+	lf.SkippedAssets = append(lf.SkippedAssets, invalid...)
+	return invalid
 }
 
 // HasInvalidSourceGitRef reports whether the asset carries a source-git
@@ -85,27 +79,23 @@ func (a *Asset) HasInvalidSourceGitRef() bool {
 	return a.SourceGit != nil && !gitCommitSHARegex.MatchString(a.SourceGit.Ref)
 }
 
-// hasUnsatisfiedDependency reports whether any of a's dependencies has
-// no row in rows that provides it (matching version when pinned).
-func hasUnsatisfiedDependency(a Asset, rows []Asset) bool {
+// dependencyBrokenByExtraction reports whether a has a dependency that
+// no surviving row satisfies but an extracted row did.
+func dependencyBrokenByExtraction(a Asset, surviving, extracted []Asset) bool {
 	for _, d := range a.Dependencies {
-		satisfied := false
-		for i := range rows {
-			if rows[i].Name == d.Name && (d.Version == "" || d.Version == rows[i].Version) {
-				satisfied = true
-				break
-			}
+		if depSatisfiedBy(d, surviving) {
+			continue
 		}
-		if !satisfied {
+		if depSatisfiedBy(d, extracted) {
 			return true
 		}
 	}
 	return false
 }
 
-func nameProvided(name string, rows []Asset) bool {
+func depSatisfiedBy(d Dependency, rows []Asset) bool {
 	for i := range rows {
-		if rows[i].Name == name {
+		if rows[i].Name == d.Name && (d.Version == "" || d.Version == rows[i].Version) {
 			return true
 		}
 	}

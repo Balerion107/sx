@@ -180,3 +180,27 @@ ref = "` + sha + `"
 		t.Fatalf("clean asset must not be skipped, got %+v", a)
 	}
 }
+
+// TestForEachSkippedLockAssetSuppressesSuperseded: a skipped row whose
+// name a surviving row still provides is not announced (the surviving
+// version installs), while its entry still protects cleanup.
+func TestForEachSkippedLockAssetSuppressesSuperseded(t *testing.T) {
+	pl := buildProfileLock("default", "foo") // surviving foo row
+	pl.LockFile.SkippedAssets = []lockfile.Asset{
+		{Name: "foo", Version: "2.0.0"},  // superseded — suppressed
+		{Name: "gone", Version: "1.0.0"}, // no surviving row — announced
+	}
+
+	var visited []string
+	forEachSkippedLockAsset([]profileLockFile{pl}, func(a lockfile.Asset) {
+		visited = append(visited, a.Name)
+	})
+	if len(visited) != 1 || visited[0] != "gone" {
+		t.Fatalf("expected only 'gone' announced, got %v", visited)
+	}
+
+	names := skippedAssetNames([]profileLockFile{pl})
+	if !names["foo"] || !names["gone"] {
+		t.Fatalf("cleanup protection must cover both, got %v", names)
+	}
+}

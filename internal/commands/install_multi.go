@@ -486,15 +486,23 @@ func skippedAssetReason(a lockfile.Asset) string {
 }
 
 // forEachSkippedLockAsset visits each fetch-time-skipped asset once
-// (deduped by name across profiles).
+// (deduped by name across profiles). Entries whose name a surviving row
+// in the same profile still provides are suppressed: the surviving
+// version installs, so announcing a skip for that name would contradict
+// the install. (They stay in SkippedAssets — cleanup protection must
+// not depend on whether the surviving version applies to this scope.)
 func forEachSkippedLockAsset(profileLocks []profileLockFile, visit func(a lockfile.Asset)) {
 	seen := make(map[string]bool)
 	for _, pl := range profileLocks {
 		if pl.LockFile == nil {
 			continue
 		}
+		surviving := make(map[string]bool, len(pl.LockFile.Assets))
+		for _, a := range pl.LockFile.Assets {
+			surviving[a.Name] = true
+		}
 		for _, a := range pl.LockFile.SkippedAssets {
-			if seen[a.Name] {
+			if seen[a.Name] || surviving[a.Name] {
 				continue
 			}
 			seen[a.Name] = true

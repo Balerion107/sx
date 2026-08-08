@@ -75,9 +75,8 @@ func TestExtractInvalidSourceGitAssetsTakesDependents(t *testing.T) {
 // TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents: dropping
 // one bad version of a name must not take down dependents that a
 // surviving good version still satisfies. The superseded bad row is
-// extracted (it cannot be processed) but not reported — the surviving
-// version installs, so warnings and cleanup protection keyed on it
-// would mislead.
+// still recorded (cleanup protection must be scope-independent);
+// messaging surfaces suppress it separately.
 func TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	lf := &LockFile{
@@ -93,11 +92,8 @@ func TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents(t *testing.T) {
 	}
 
 	reported := lf.ExtractInvalidSourceGitAssets()
-	if len(reported) != 0 {
-		t.Fatalf("superseded bad row must not be reported, got %+v", reported)
-	}
-	if len(lf.SkippedAssets) != 0 {
-		t.Fatalf("superseded bad row must not enter SkippedAssets, got %+v", lf.SkippedAssets)
+	if len(reported) != 1 || reported[0].Key() != "foo@2.0.0" {
+		t.Fatalf("expected only foo@2.0.0 extracted, got %+v", reported)
 	}
 	if len(lf.Assets) != 2 {
 		t.Fatalf("expected foo@1.0.0 and dependent kept, got %+v", lf.Assets)
@@ -108,9 +104,9 @@ func TestExtractInvalidSourceGitAssetsSparesSatisfiedDependents(t *testing.T) {
 }
 
 // TestExtractInvalidSourceGitAssetsVersionPinnedDependent: a dependency
-// pinned to the extracted version is unsatisfied even when another
-// version of the name survives — the dependent must be extracted too,
-// or Validate rejects the whole lock for the version mismatch.
+// pinned to the extracted version is broken even when another version
+// of the name survives — the dependent must be extracted too, or
+// Validate rejects the whole lock for the version mismatch.
 func TestExtractInvalidSourceGitAssetsVersionPinnedDependent(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	lf := &LockFile{
@@ -126,10 +122,10 @@ func TestExtractInvalidSourceGitAssetsVersionPinnedDependent(t *testing.T) {
 	}
 
 	reported := lf.ExtractInvalidSourceGitAssets()
-	if len(reported) != 1 || reported[0].Name != "bar" {
-		t.Fatalf("expected only bar reported (foo superseded), got %+v", reported)
+	if len(reported) != 2 {
+		t.Fatalf("expected foo@1.0.0 and bar extracted, got %+v", reported)
 	}
-	if len(lf.Assets) != 1 || lf.Assets[0].Version != "2.0.0" {
+	if len(lf.Assets) != 1 || lf.Assets[0].Key() != "foo@2.0.0" {
 		t.Fatalf("expected only foo@2.0.0 kept, got %+v", lf.Assets)
 	}
 	if err := lf.Validate(); err != nil {
@@ -157,17 +153,42 @@ func TestExtractInvalidSourceGitAssetsMultiVersionDependent(t *testing.T) {
 	}
 
 	reported := lf.ExtractInvalidSourceGitAssets()
-	if len(reported) != 1 || reported[0].Name != "a" {
-		t.Fatalf("expected only a reported (b@1 superseded, c satisfied), got %+v", reported)
-	}
-	names := []string{}
-	for _, x := range lf.Assets {
-		names = append(names, x.Name+"@"+x.Version)
+	if len(reported) != 2 {
+		t.Fatalf("expected a and b@1.0.0 extracted (c satisfied by b@2.0.0), got %+v", reported)
 	}
 	if len(lf.Assets) != 2 || lf.Assets[0].Key() != "b@2.0.0" || lf.Assets[1].Name != "c" {
-		t.Fatalf("expected b@2.0.0 and c kept, got %v", names)
+		t.Fatalf("expected b@2.0.0 and c kept, got %+v", lf.Assets)
 	}
 	if err := lf.Validate(); err != nil {
 		t.Fatalf("remaining assets must validate: %v", err)
+	}
+}
+
+// TestExtractInvalidSourceGitAssetsIgnoresForeignDanglingDeps: a
+// dependency that was never in the lock file is not extraction damage —
+// it must keep failing Validate wholesale exactly as it did before this
+// mechanism existed, even when an unrelated asset has a bad ref.
+func TestExtractInvalidSourceGitAssetsIgnoresForeignDanglingDeps(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	lf := &LockFile{
+		LockVersion: "1.0",
+		Version:     "1",
+		CreatedBy:   "test",
+		Assets: []Asset{
+			{Name: "x", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: "main"}},
+			{Name: "y", Version: "1.0.0", Type: asset.TypeSkill, SourceGit: &SourceGit{URL: "https://x/y", Ref: sha},
+				Dependencies: []Dependency{{Name: "never-present"}}},
+		},
+	}
+
+	reported := lf.ExtractInvalidSourceGitAssets()
+	if len(reported) != 1 || reported[0].Name != "x" {
+		t.Fatalf("expected only x extracted, got %+v", reported)
+	}
+	if len(lf.Assets) != 1 || lf.Assets[0].Name != "y" {
+		t.Fatalf("y must be kept (its dangling dep is not extraction damage), got %+v", lf.Assets)
+	}
+	if err := lf.Validate(); err == nil {
+		t.Fatal("a dependency that was never present must still fail Validate")
 	}
 }
